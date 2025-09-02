@@ -1,0 +1,602 @@
+# Ottoscaler 프로젝트 - Cursor AI 어시스턴트 규칙
+
+## 🎯 프로젝트 개요
+Ottoscaler는 **Kubernetes 클러스터 내에서 실행되는 Main Pod**로서, Redis Streams 이벤트를 기반으로 Otto agent Worker Pods를 동적으로 스케일링하는 Go 애플리케이션입니다.
+
+### 핵심 아키텍처
+```
+┌─── External Redis ─────┐    ┌─── Kubernetes Cluster ──────────────────────┐
+│                        │    │                                              │
+│  Redis Streams         │    │  ┌─────────────┐    ┌──────────────────────┐ │
+│  otto:scale:events ────┼────┼─▶│ Ottoscaler  │───▶│ Otto Agent Pods      │ │
+│                        │    │  │ (Main Pod)  │    │ (Dynamic Workers)    │ │
+│                        │    │  │ - K8s에서    │    │ - 동적 생성            │ │
+│                        │    │  │   상시 실행   │    │ - 작업 완료 후 삭제      │ │
+│                        │    │  │ - 이벤트 감지  │    │ - gRPC로 로그 전송      │ │
+│                        │    │  │ - Worker 관리│    │                      │ │
+└────────────────────────┘    │  └─────────────┘    └──────────────────────┘ │
+                               └──────────────────────────────────────────────┘
+```
+
+### 핵심 구조
+- **Main Pod (Ottoscaler)**: Kubernetes 클러스터 내에서 상시 실행되는 컨트롤러 Pod
+- **Worker Pods**: Main Pod가 동적으로 생성/관리하는 Otto agent 작업 실행 Pod
+- **Redis Streams**: 클러스터 외부의 스케일링 이벤트 전달 메커니즘
+- **gRPC Streaming**: Worker Pod에서 NestJS 서버로의 실시간 로그 전송
+
+## 📁 프로젝트 구조 및 역할
+
+### 실행 환경 구분
+- **개발 환경**: `make run` - 로컬에서 직접 실행 (빠른 개발/테스트용)
+- **프로덕션 환경**: `make deploy` - Kubernetes Pod로 배포 (실제 운영 환경)
+
+### 디렉터리 구조 (Go 표준 프로젝트 레이아웃)
+```
+ottoscaler/
+├── cmd/                    # 메인 애플리케이션들
+│   └── app/               # Main Pod 애플리케이션 엔트리포인트
+├── internal/              # 내부 패키지 (외부 노출 금지)
+│   ├── redis/             # Redis Streams 클라이언트
+│   ├── k8s/               # Kubernetes API 클라이언트
+│   ├── worker/            # Worker Pod 라이프사이클 관리
+│   └── app/               # 애플리케이션별 내부 로직
+├── pkg/                   # 외부 사용 가능한 라이브러리 코드
+│   └── proto/v1/          # 생성된 Protocol Buffer 코드
+├── proto/                 # Protocol Buffer 정의 파일
+├── k8s/                   # Kubernetes 매니페스트
+├── docs/                  # 문서
+├── scripts/               # 빌드 및 유틸리티 스크립트
+├── configs/               # 설정 파일들
+├── examples/              # 예제 코드 (향후)
+├── go.mod                 # Go 모듈 정의
+├── go.sum                 # Go 모듈 체크섬
+├── Makefile               # 빌드 및 개발 명령어
+├── Dockerfile             # 프로덕션 이미지
+├── dev.Dockerfile         # 개발 환경 이미지
+├── README.md              # 프로젝트 소개 및 가이드
+└── CLAUDE.md              # Claude Code를 위한 프로젝트 지침
+```
+
+이제 `.cursorrules` 파일이 올바른 아키텍처를 반영하도록 수정되었습니다. **Main Pod 자체가 Kubernetes에서 실행되는 컨트롤러**라는 핵심 개념이 명확해졌습니다! 🎯
+
+### 핵심 컴포넌트 역할
+- **Main Pod (Ottoscaler)**: 
+  - Kubernetes 클러스터 내에서 상시 실행
+  - Redis 이벤트 리스닝 및 Worker Pod 라이프사이클 관리
+  - ServiceAccount 권한으로 Pod CRUD 작업 수행
+- **Redis Client**: Consumer Group 관리, 2초마다 이벤트 폴링
+- **Kubernetes Client**: 클러스터 내부 인증, Worker Pod CRUD 작업
+- **Worker Manager**: 동시 Worker Pod 생성, 완료 모니터링, 자동 정리
+
+## 🛠️ 개발 환경 및 도구
+
+### 🚀 현대적 개발 워크플로우
+
+#### 핵심 개발 철학: **컨테이너 기반 개발 환경**
+- **코드 편집**: 호스트(로컬) IDE에서 수행
+- **실행/테스트**: 개발 컨테이너 내부에서 수행  
+- **실시간 동기화**: 볼륨 마운트로 코드 변경사항 즉시 반영
+
+#### 표준 개발 절차
+1. **환경 시작**: `make dev-start` (Redis + 개발 컨테이너)
+2. **컨테이너 접속**: `make dev-shell`
+3. **애플리케이션 실행**: `go run ./cmd/app` (컨테이너 내부)
+4. **테스트**: `make test-event` (호스트 또는 컨테이너)
+5. **코드 품질**: `make fmt && make lint` (호스트 또는 컨테이너)
+
+#### 이중 실행 환경 지원
+- **개발 컨테이너**: `go run ./cmd/app` (빠른 개발/디버깅)
+- **Kubernetes 배포**: `make deploy` (실제 프로덕션 환경)
+
+## 🔧 코딩 스타일 및 규칙
+
+### Go 언어 규칙
+- **패키지 구조**: `internal/` 패키지는 외부 노출 금지
+- **에러 처리**: 모든 에러는 적절히 처리하고 로깅
+- **컨텍스트**: 모든 장기 실행 작업에 `context.Context` 사용
+- **고루틴**: 동시성 처리 시 적절한 동기화 메커니즘 사용
+- **로깅**: `log.Printf`를 사용하여 구조화된 로그 출력
+
+### 네이밍 규칙
+- **구조체**: PascalCase (예: `WorkerConfig`, `ScaleEvent`)
+- **함수/메서드**: PascalCase for exported, camelCase for unexported
+- **상수**: ALL_CAPS (예: `REDIS_STREAM`)
+- **환경변수**: UPPER_SNAKE_CASE (예: `REDIS_HOST`)
+
+### 코드 구조 패턴
+```go
+// 클라이언트 구조체 패턴
+type Client struct {
+    client    *someClient
+    namespace string
+}
+
+func NewClient(params) *Client {
+    // 초기화 로직
+}
+
+func (c *Client) Method(ctx context.Context, params) error {
+    // 메서드 구현
+}
+```
+
+## 🏗️ 아키텍처 가이드라인
+
+### 배포 모델
+- **Main Pod (Ottoscaler)**: 
+  - Kubernetes Deployment로 배포
+  - 단일 레플리카로 실행 (stateful 특성)
+  - ServiceAccount `ottoscaler`로 Worker Pod 관리 권한 보유
+  - 클러스터 내부에서 상시 실행되는 컨트롤러
+
+### Worker Pod 관리 패턴
+- **생성**: Main Pod가 Kubernetes API를 통해 동적 생성
+- **모니터링**: Main Pod가 Worker Pod 상태를 2초마다 폴링
+- **정리**: 작업 완료 시 Main Pod가 자동 삭제
+- **격리**: 각 Worker Pod는 독립적으로 실행 및 관리
+
+### 네트워크 통신
+- **Redis ↔ Main Pod**: 클러스터 외부 Redis와 통신
+- **Main Pod ↔ Worker Pods**: Kubernetes API를 통한 관리
+- **Worker Pods ↔ NestJS**: gRPC 스트리밍으로 직접 통신
+
+## 🔌 gRPC 구현 가이드
+
+### Protocol Buffer 규칙
+- **패키지명**: `ottoscaler.v1`
+- **Go 패키지**: `github.com/Team-5-CodeCat/ottoscaler/pkg/proto/v1`
+- **서비스명**: `LogStreamingService`
+- **메시지 타입**: `LogEntry`, `LogResponse`, `WorkerRegistration`
+
+### gRPC 스트리밍 패턴
+- **양방향 스트리밍**: Worker Pod ↔ NestJS 서버
+- **연결 관리**: 재연결 로직 및 타임아웃 처리
+- **백프레셔**: 서버 과부하 시 RETRY 응답으로 속도 조절
+- **시퀀스 보장**: sequence 번호로 로그 순서 보장
+
+### 로그 데이터 구조
+```go
+type LogEntry struct {
+    WorkerId  string            // Worker Pod 고유 식별자
+    TaskId    string            // Redis 이벤트 작업 식별자
+    Timestamp string            // RFC3339 형식 시간
+    Level     string            // INFO, ERROR, DEBUG, WARN
+    Source    string            // stdout, stderr
+    Message   string            // 실제 로그 내용
+    Metadata  map[string]string // 추가 메타데이터
+}
+```
+
+## 🐳 컨테이너 및 배포
+
+### Docker 빌드 패턴
+- **Multi-stage build**: golang:1.24-alpine → alpine:latest
+- **최소 이미지**: ca-certificates만 포함한 alpine 베이스
+- **보안**: CGO_ENABLED=0으로 정적 바이너리 생성
+
+### Kubernetes 배포 규칙
+- **ServiceAccount**: `ottoscaler` 전용 계정 사용
+- **RBAC**: Pod 관리에 필요한 최소 권한만 부여
+- **Resource Limits**: 메모리 128Mi, CPU 500m 제한
+- **Labels**: `managed-by=ottoscaler`로 Worker Pod 식별
+
+### 환경 변수 구성
+```bash
+REDIS_HOST=host.docker.internal    # Redis 서버 주소
+REDIS_PORT=6379                    # Redis 포트
+REDIS_STREAM=otto:scale:events     # 스트림 이름
+REDIS_CONSUMER_GROUP=ottoscaler    # Consumer Group
+OTTO_AGENT_IMAGE=busybox:latest    # Worker Pod 이미지
+```
+
+## 📊 모니터링 및 디버깅
+
+### 로깅 규칙
+- **구조화된 로그**: `log.Printf("action: %s, details: %+v", action, details)`
+- **에러 로깅**: 모든 에러는 컨텍스트와 함께 로깅
+- **성능 로깅**: Worker 생성/완료 시간 기록
+- **상태 로깅**: Pod 상태 변화 추적
+
+### 💻 Make 명령어 완전 가이드
+
+#### 개발 환경 관리 (호스트에서 실행)
+```bash
+make dev-start    # 개발 환경 시작 (Redis + 개발 컨테이너)
+make dev-shell    # 개발 컨테이너 접속
+make dev-stop     # 개발 환경 중지 (컨테이너 보존)
+make dev-clean    # 개발 환경 완전 삭제 (컨테이너 + 캐시)
+```
+
+#### 개발 도구 (호스트/컨테이너 모두 지원)
+```bash
+make proto        # Protocol Buffer 코드 생성
+make test         # 테스트 실행
+make fmt          # 코드 포맷팅
+make lint         # 코드 린트 검사
+make test-event   # Redis에 테스트 이벤트 전송
+make redis-cli    # Redis CLI 접속
+```
+
+#### 프로덕션 배포 (호스트에서 실행)
+```bash
+make build        # 프로덕션 이미지 빌드
+make deploy       # Kubernetes 배포
+make logs         # 배포된 Pod 로그 조회
+make clean        # 모든 리소스 정리
+```
+
+## 🧪 테스트 가이드라인
+
+### 테스트 전략
+- **단위 테스트**: 각 클라이언트 및 매니저 로직
+- **통합 테스트**: Redis + Kubernetes 통합 시나리오
+- **부하 테스트**: 다중 Worker Pod 동시 생성
+- **장애 테스트**: 네트워크 분할, Pod 실패 시나리오
+
+### 테스트 명령어
+```bash
+go test ./...                    # 전체 테스트 실행
+go test -race ./...              # 레이스 컨디션 검사
+go test -cover ./...             # 커버리지 측정
+```
+
+## 🚀 성능 최적화 가이드
+
+### 동시성 최적화
+- **고루틴 풀**: 무제한 고루틴 생성 대신 워커 풀 고려
+- **채널 버퍼링**: 이벤트 채널 크기 조정 (현재 100)
+- **타임아웃 설정**: Redis 폴링 2초, Kubernetes API 적절한 타임아웃
+
+### 메모리 최적화
+- **가비지 컬렉션**: 대용량 구조체 재사용
+- **버퍼 관리**: gRPC 스트림 버퍼 크기 조정
+- **리소스 정리**: defer 문으로 리소스 해제 보장
+
+## 🔒 보안 가이드라인
+
+### Kubernetes 보안
+- **최소 권한 원칙**: RBAC에서 필요한 권한만 부여
+- **ServiceAccount**: 전용 계정 사용
+- **네트워크 정책**: 필요한 통신만 허용
+
+### gRPC 보안
+- **TLS 연결**: 프로덕션에서 암호화 통신 필수
+- **인증**: Worker Pod 인증 메커니즘 구현
+- **권한 검증**: 각 요청의 권한 확인
+
+## 📝 문서화 규칙
+
+### 코드 주석
+- **패키지 주석**: 각 패키지의 목적과 사용법 설명
+- **구조체 주석**: 필드별 상세 설명
+- **함수 주석**: 매개변수, 반환값, 부작용 설명
+- **복잡한 로직**: 알고리즘이나 비즈니스 로직 설명
+
+### Protocol Buffer 주석
+- **한국어 주석**: 모든 메시지와 필드에 상세한 한국어 설명
+- **사용 예시**: 실제 데이터 예시 포함
+- **통신 패턴**: RPC 메서드별 동작 방식 설명
+
+## 🚨 주의사항 및 제약사항
+
+### 현재 제약사항
+- **Scale Down**: 아직 구현되지 않음 (TODO)
+- **Worker 지속성**: 장기 실행 Worker에 대한 상태 관리 없음
+- **리소스 제한**: Worker Pod에 CPU/메모리 제약 없음
+- **모니터링**: 제한적인 관찰 가능성 및 메트릭스
+
+### 개발 시 주의사항
+- **컨텍스트 취소**: 모든 장기 작업에서 ctx.Done() 처리
+- **리소스 정리**: defer로 연결 및 리소스 해제
+- **에러 전파**: 적절한 에러 래핑 및 로깅
+- **동시성 안전**: 공유 상태 접근 시 동기화
+
+## 🔄 개발 워크플로우
+
+### 새 기능 개발
+1. **설계 단계**: docs/ 디렉터리에 설계 문서 작성
+2. **프로토타입**: 간단한 예제로 개념 검증
+3. **단위 테스트**: 핵심 로직 테스트 작성
+4. **통합 테스트**: 전체 플로우 테스트
+5. **문서 업데이트**: 구현 가이드 및 아키텍처 문서 갱신
+
+### 코드 리뷰 체크리스트
+- [ ] 에러 처리가 적절한가?
+- [ ] 컨텍스트 취소가 처리되는가?
+- [ ] 리소스 정리가 보장되는가?
+- [ ] 로깅이 충분한가?
+- [ ] 테스트가 포함되어 있는가?
+
+## 🎛️ 환경별 설정
+
+### 개발 환경
+- **Redis**: Docker 컨테이너로 로컬 실행
+- **Kubernetes**: 로컬 클러스터 또는 kubeconfig 사용
+- **이미지**: `imagePullPolicy: Never`로 로컬 빌드 사용
+
+### 프로덕션 환경
+- **Redis**: 외부 Redis 클러스터 연결
+- **Kubernetes**: 클러스터 내부 ServiceAccount 인증
+- **이미지**: 레지스트리에서 이미지 pull
+
+## 🤖 AI 어시스턴트 특별 지침
+
+### 아키텍처 이해 시 핵심 포인트
+1. **Main Pod는 Kubernetes 내부에서 실행되는 컨트롤러**
+2. **로컬 실행(`make run`)은 개발 편의용, 실제 운영은 `make deploy`**
+3. **Main Pod가 Worker Pod들의 전체 라이프사이클을 책임짐**
+4. **ServiceAccount 권한으로 클러스터 내 Pod 관리 권한 보유**
+
+### 문제 해결 시 고려사항
+- **개발 vs 운영**: 로컬 실행과 Kubernetes 배포의 차이점 이해
+- **권한 모델**: ServiceAccount 기반 RBAC 권한 체계
+- **네트워크**: 클러스터 내부 통신 vs 외부 Redis 접근
+- **상태 관리**: Main Pod는 stateless하지만 Worker 관리 상태 유지
+
+### 코드 생성 시 주의사항
+- **클러스터 내부 실행 가정**: 코드는 Kubernetes Pod 내부에서 실행됨을 전제
+- **ServiceAccount 권한**: Pod 관리 작업 시 적절한 권한 확인
+- **환경 감지**: 개발(로컬) vs 운영(K8s) 환경 자동 감지 로직 포함
+- **리소스 관리**: Main Pod의 메모리/CPU 사용량 최적화
+
+### 질문 응답 시
+- **구체적 예시**: 실제 코드 예시와 함께 설명
+- **단계별 가이드**: 복잡한 작업은 단계별로 분해
+- **대안 제시**: 여러 구현 방법이 있는 경우 장단점 비교
+- **성능 고려**: 확장성과 성능 영향 언급
+
+### 파일 수정 시
+- **기존 구조 유지**: 프로젝트의 기존 패턴과 일관성 유지
+- **점진적 변경**: 대규모 리팩토링보다 점진적 개선 선호
+- **하위 호환성**: 기존 API와 인터페이스 유지
+- **문서 동기화**: 코드 변경 시 관련 문서도 함께 업데이트 제안
+
+## 📋 체크리스트
+
+### Main Pod 관련 작업 시
+- [ ] ServiceAccount 권한 확인
+- [ ] 클러스터 내부 네트워크 고려
+- [ ] 환경 변수 ConfigMap/Secret 사용
+- [ ] 리소스 제한 설정
+- [ ] 헬스체크 및 라이브니스 프로브 구현
+
+### Worker Pod 관리 시
+- [ ] 적절한 라벨링 (`managed-by=ottoscaler`)
+- [ ] 리소스 제한 설정
+- [ ] 네임스페이스 일관성
+- [ ] 정리 로직 포함
+- [ ] 실패 시 재시도 전략
+
+## 🐳 현대적 컨테이너 개발 환경
+
+### 🎯 **핵심 개발 원칙**
+**"코드 편집은 로컬에서, 실행은 컨테이너에서!"**
+
+### 개발 환경 아키텍처
+```
+┌─── 개발자 머신 (Windows/macOS/Linux) ──────────────────────────────────┐
+│                                                                         │
+│ ┌─── 로컬 IDE ────────┐    ┌─── 개발 컨테이너 ──────────────────────────┐ │
+│ │ • VS Code          │    │ • Go 1.24.6 + 전체 도구체인               │ │
+│ │ • IntelliJ         │◄───┤ • Protocol Buffers + gRPC               │ │
+│ │ • 코드 편집         │    │ • kubectl + Redis CLI                   │ │
+│ │ • Git 관리         │    │ • golangci-lint + 코드 품질 도구         │ │
+│ │ • 실시간 동기화     │    │ • Starship 프롬프트 (🐹 표시)            │ │
+│ └────────────────────┘    └───────────────────────────────────────────┘ │
+│                                                                         │
+│ ┌─── 외부 서비스 ──────────────────────────────────────────────────────┐ │
+│ │ • Redis Container (개발용)                                        │ │
+│ │ • Kubernetes 클러스터 (로컬/원격)                                  │ │  
+│ │ • NestJS Server (향후 gRPC 통합)                                  │ │
+│ └─────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### ⚡ **Quick Start 가이드**
+```bash
+# 1단계: 레포지토리 클론
+git clone <repository-url>
+cd ottoscaler
+
+# 2단계: 개발 환경 시작 (한 번만!)
+make dev-start
+
+# 3단계: 개발 컨테이너 접속
+make dev-shell
+
+# 4단계: 컨테이너 내부에서 개발
+🐹 go run ./cmd/app       # 애플리케이션 실행
+🐹 make test-event        # 테스트 이벤트 전송
+🐹 make proto            # gRPC 코드 생성
+```
+
+### 💡 **실제 개발 워크플로우**
+```bash
+# Terminal 1: 호스트
+make dev-start && make dev-shell
+
+# VS Code: 코드 수정 (자동으로 컨테이너에 반영)
+# - internal/worker/manager.go 편집
+# - 파일 저장 → 볼륨 마운트로 즉시 동기화
+
+# Terminal 1: 컨테이너 내부
+🐹 go run ./cmd/app       # 수정된 코드로 실행
+🐹 kubectl get pods -w   # Worker Pod 상태 모니터링
+
+# Terminal 2: 호스트에서도 가능
+make lint                # 코드 품질 검사
+make test-event          # 이벤트 테스트
+```
+
+### 크로스 플랫폼 호환성
+- **Windows**: WSL2 + Docker Desktop
+- **macOS**: Docker Desktop
+- **Linux**: Docker Engine
+- **모든 IDE 지원**: VS Code, GoLand, Vim 등
+
+### 개발 환경 일관성 보장
+- **동일한 Go 버전**: 모든 개발자가 Go 1.24 사용
+- **동일한 도구 체인**: Protocol Buffers, kubectl, golangci-lint 등
+- **동일한 의존성**: go.mod를 통한 정확한 버전 관리
+- **동일한 빌드 환경**: Multi-stage Docker 빌드
+
+### 통합 시스템 아키텍처 (개발 시)
+```
+┌─── Development Container ──┐    ┌─── External Services ─────────────────┐
+│                             │    │                                       │
+│ ┌─────────────────────────┐ │    │ ┌─── Redis Container ──────────────┐  │
+│ │ Ottoscaler              │ │    │ │ • 개발용 Redis 인스턴스           │  │
+│ │ (Development Mode)      │◄┼────┼─┤ • 로컬 Docker로 실행              │  │
+│ │ • make run으로 실행      │ │    │ │ • 스케일링 이벤트 스트림           │  │
+│ │ • kubeconfig 사용       │ │    │ └───────────────────────────────────┘  │
+│ └─────────────────────────┘ │    │                                       │
+│             │               │    │ ┌─── Kubernetes Cluster ────────────┐  │
+│             │               │    │ │ • 로컬 또는 원격 클러스터           │  │
+│             └───────────────┼────┼─┤ • Worker Pods 동적 생성/관리       │  │
+│                             │    │ │ • kubectl로 접근                   │  │
+│                             │    │ └───────────────────────────────────┘  │
+│                             │    │                                       │
+│                             │    │ ┌─── NestJS Server (Future) ────────┐  │
+│                             │    │ │ • gRPC 로그 스트리밍 서버          │  │
+│                             │    │ │ • Worker Pod 로그 수신             │  │
+│                             │    │ │ • Container로 배포 예정            │  │
+│                             │    │ └───────────────────────────────────┘  │
+└─────────────────────────────┘    └───────────────────────────────────────┘
+```
+
+### 🎯 **현대적 개발 환경 핵심 원칙**
+1. **"코드 편집은 로컬에서, 실행은 컨테이너에서"**
+2. **실시간 동기화**: 볼륨 마운트로 코드 변경사항 즉시 반영
+3. **이중 환경 지원**: 호스트/컨테이너 양쪽에서 Make 명령어 실행 가능
+4. **크로스 플랫폼**: Windows/macOS/Linux 100% 동일한 개발 경험
+5. **표준화된 도구**: Go 1.24.6 + 전체 개발 도구체인
+
+### 🤖 **AI 어시스턴트 핵심 지침**
+
+#### 🎯 **현재 개발 환경 이해**
+1. **컨테이너 기반 개발**: 모든 개발 작업은 표준화된 개발 컨테이너에서 수행
+2. **이중 환경 지원**: 호스트/컨테이너 양쪽에서 Make 명령어 실행 가능
+3. **실시간 동기화**: 볼륨 마운트로 코드 변경사항 즉시 반영
+4. **크로스 플랫폼**: Windows/macOS/Linux 100% 동일한 개발 경험
+
+#### 🔧 **명령어 가이드 시 고려사항**
+- **환경 자동 감지**: `[ -f /.dockerenv ]`로 컨테이너 내부 판단
+- **이중 실행 지원**: 호스트에서는 `docker exec`, 컨테이너에서는 직접 실행
+- **개발 흐름 고려**: `make dev-start` → `make dev-shell` → 컨테이너에서 개발
+
+#### 🏗️ **아키텍처 설명 시 핵심**
+1. **Main Pod = Kubernetes 내부 컨트롤러** (프로덕션 환경)
+2. **개발 컨테이너 = 로컬 개발 환경** (개발 편의)
+3. **ServiceAccount 권한**으로 Worker Pod 관리
+4. **gRPC 스트리밍**으로 NestJS 서버 연동 (향후)
+
+#### 💡 **코드 생성/수정 시 원칙**
+- **환경별 대응**: 개발(컨테이너) vs 운영(K8s) 환경 모두 고려
+- **Make 명령어 호환**: 호스트/컨테이너 양쪽 실행 가능하도록 작성
+- **볼륨 마운트 활용**: 실시간 코드 동기화 전제
+- **Starship 프롬프트**: 컨테이너 환경 표시 (`🐹`)
+
+#### 📚 **문서 작성 가이드**
+- **Quick Start 우선**: `make dev-start && make dev-shell` 패턴 강조
+- **실제 시나리오**: 구체적인 개발 워크플로우 예시 제공
+- **FAQ 포함**: 예상 질문과 해답 미리 작성
+- **크로스 플랫폼**: OS별 차이점 없음을 명시
+
+이제 **모든 개발자가 동일한 컨테이너 환경**에서 일관된 개발 경험을 할 수 있습니다! 🚀
+
+## 📁 Go 프로젝트 표준 레이아웃 가이드라인
+
+### 현재 프로젝트 디렉터리 구조
+
+Ottoscaler는 Go 커뮤니티의 표준 프로젝트 레이아웃을 엄격히 준수합니다:
+
+```
+ottoscaler/
+├── cmd/                    # 메인 애플리케이션들
+│   └── app/               # Main Pod 애플리케이션 엔트리포인트
+├── internal/              # 내부 패키지 (외부 노출 금지)
+│   ├── redis/             # Redis Streams 클라이언트
+│   ├── k8s/               # Kubernetes API 클라이언트
+│   ├── worker/            # Worker Pod 라이프사이클 관리
+│   └── app/               # 애플리케이션 로직
+├── pkg/                   # 외부 사용 가능한 라이브러리 코드
+│   └── proto/v1/          # 생성된 Protocol Buffer 코드
+├── proto/                 # Protocol Buffer 정의 파일
+├── k8s/                   # Kubernetes 매니페스트
+├── docs/                  # 문서
+├── scripts/               # 빌드 및 유틸리티 스크립트
+├── configs/               # 설정 파일들
+└── examples/              # 예제 코드 (향후)
+```
+
+### 🎯 디렉터리별 엄격한 사용 원칙
+
+#### `/cmd` - 메인 애플리케이션
+- **원칙**: 각 애플리케이션 디렉터리명 = 실행 파일 이름
+- **금지**: 애플리케이션 디렉터리에 비즈니스 로직 포함
+- **권장**: `/internal`와 `/pkg` 코드를 import하는 작은 `main` 함수만
+
+#### `/internal` - 내부 패키지 (Go 컴파일러 강제)
+- **보장**: Go 컴파일러가 외부 import를 원천 차단
+- **용도**: 다른 프로젝트에서 사용하면 안 되는 모든 코드
+- **구조**: 
+  - `/internal/app/` - 실제 애플리케이션 로직
+  - `/internal/pkg/` - 내부 공유 코드
+
+#### `/pkg` - 공개 라이브러리 코드
+- **주의**: 외부에서 import 가능 = 안정적 API 제공 필요
+- **용도**: Protocol Buffer 생성 코드, 유틸리티 함수
+- **경고**: 여기 코드를 변경하면 다른 프로젝트에 영향
+
+#### `/proto` - Protocol Buffer 소스
+- **필수**: 모든 `.proto` 파일의 유일한 위치
+- **요구사항**: 상세한 한국어 주석 필수
+- **생성**: `make proto` → `/pkg/proto/v1/` Go 코드 생성
+
+### ⚠️ **절대 금지 패턴**
+
+#### `/src` 디렉터리 사용 절대 금지
+- **이유**: Java 패턴을 Go에 강제 적용하는 안티 패턴
+- **혼동 주의**: 워크스페이스 `/src`와 프로젝트 `/src`는 다름
+- **원칙**: Go 프로젝트는 `/src` 없이 구성
+
+### 🏗️ 코드 구성 강제 규칙
+
+#### 패키지 네이밍 (Go 표준)
+- **구조체**: `PascalCase` (`WorkerConfig`, `ScaleEvent`)
+- **함수/메서드**: exported=`PascalCase`, unexported=`camelCase`
+- **상수**: `ALL_CAPS` (`REDIS_STREAM`)
+- **환경변수**: `UPPER_SNAKE_CASE` (`REDIS_HOST`)
+
+#### import 경로 규칙
+```go
+// 내부 패키지 - 외부 사용 금지
+import "github.com/Team-5-CodeCat/ottoscaler/internal/redis"
+import "github.com/Team-5-CodeCat/ottoscaler/internal/k8s"
+import "github.com/Team-5-CodeCat/ottoscaler/internal/worker"
+
+// 공개 패키지 - 외부 사용 허용
+import "github.com/Team-5-CodeCat/ottoscaler/pkg/proto/v1"
+```
+
+### 📋 **코드 작성/리뷰 필수 체크리스트**
+
+새로운 패키지나 기능 개발 시 **반드시** 확인:
+- [ ] **디렉터리 위치**: `internal` vs `pkg` 올바른 선택?
+- [ ] **패키지명**: 명확하고 Go 컨벤션 준수?
+- [ ] **외부 노출**: 정말 외부에서 사용해도 되는 코드?
+- [ ] **네이밍**: PascalCase/camelCase 올바른 적용?
+- [ ] **Protocol Buffer**: `.proto` 파일 우선 작성?
+- [ ] **문서화**: 공개 함수/구조체에 godoc 주석?
+
+### 🤖 **AI 어시스턴트 추가 지침**
+
+#### 파일 생성/수정 시
+- **디렉터리 검증**: 새 파일 위치가 표준 레이아웃에 맞는지 확인
+- **import 검증**: 내부/외부 패키지 import가 적절한지 검증
+- **네이밍 검증**: Go 표준 네이밍 컨벤션 준수 확인
+
+#### 코드 구조 제안 시
+- **표준 준수**: 항상 Go 표준 프로젝트 레이아웃 기준으로 제안
+- **경로 명시**: 정확한 디렉터리 경로와 이유 설명
+- **대안 제시**: 여러 구조 옵션이 있다면 표준 레이아웃 관점에서 비교

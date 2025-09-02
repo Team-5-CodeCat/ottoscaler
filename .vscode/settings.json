@@ -1,0 +1,50 @@
+{
+  "go.useLanguageServer": true,
+  "go.formatTool": "gofmt",
+  "go.lintTool": "golangci-lint",
+  "editor.formatOnSave": true,
+  "editor.formatOnSaveMode": "file",
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": "explicit",
+    "source.fixAll": "explicit"
+  },
+  "[go]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "golang.go"
+  },
+  "go.lintOnSave": "package",
+  "go.vetOnSave": "package",
+  "go.buildOnSave": "off",
+  "go.testOnSave": false,
+  "go.coverOnSave": false,
+  "go.generateTestsFlags": [
+    "-exported"
+  ],
+  "go.toolsManagement.autoUpdate": true,
+  "gopls": {
+    "formatting.gofumpt": false,
+    "ui.completion.usePlaceholders": true,
+    "ui.diagnostic.staticcheck": true,
+    "ui.semanticTokens": true
+  },
+  "files.associations": {
+    "*.proto": "proto3"
+  },
+  "yaml.schemas": {
+    "https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json": [
+      "docker-compose*.yml",
+      "docker-compose*.yaml"
+    ]
+  },
+  "files.exclude": {
+    "**/.git": true,
+    "**/.DS_Store": true,
+    "**/node_modules": true,
+    "**/*.generated.go": false
+  },
+  "search.exclude": {
+    "**/.git": true,
+    "**/node_modules": true,
+    "**/vendor": true
+  }
+}

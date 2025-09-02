@@ -1,0 +1,201 @@
+syntax = "proto3";
+
+package ottoscaler.v1;
+
+option go_package = "github.com/Team-5-CodeCat/ottoscaler/pkg/proto/v1";
+
+/*
+ * LogStreamingService - Worker Pod에서 NestJS 서버로의 실시간 로그 스트리밍 서비스
+ * 
+ * 🎯 목적:
+ * - Worker Pod의 stdout/stderr 로그를 실시간으로 NestJS 서버에 전송
+ * - 양방향 스트리밍을 통한 효율적인 로그 전송 및 피드백 처리
+ * - Worker Pod 등록 및 설정 관리
+ * 
+ * 📊 통신 패턴:
+ * 1. Worker Pod 시작 → RegisterWorker() 호출 → 세션 설정 받기
+ * 2. 로그 생성 시마다 → StreamLogs() 스트림으로 전송 → 응답 받기
+ * 3. Worker Pod 종료 시 → 스트림 연결 자동 종료
+ */
+service LogStreamingService {
+    /*
+     * StreamLogs - 양방향 스트리밍 RPC로 로그 전송
+     * 
+     * 📝 동작 방식:
+     * - Client (Worker Pod): LogEntry 메시지를 지속적으로 전송
+     * - Server (NestJS): LogResponse로 처리 상태 응답
+     * - 연결이 끊어지면 자동으로 재연결 시도
+     * 
+     * 🔄 스트림 라이프사이클:
+     * 1. Worker Pod가 스트림 연결 시작
+     * 2. 로그 발생 시마다 LogEntry 전송
+     * 3. 서버가 LogResponse로 ACK/RETRY/DROP 응답
+     * 4. Worker 작업 완료 시 스트림 종료
+     */
+    rpc StreamLogs(stream LogEntry) returns (stream LogResponse);
+    
+    /*
+     * RegisterWorker - Worker Pod 시작 시 서버에 등록
+     * 
+     * 📋 등록 프로세스:
+     * 1. Worker Pod가 시작되면 즉시 호출
+     * 2. Worker 메타데이터와 작업 정보 전송
+     * 3. 서버에서 세션 ID와 로깅 설정 반환
+     * 4. 이후 StreamLogs에서 세션 ID 사용
+     */
+    rpc RegisterWorker(WorkerRegistration) returns (RegistrationResponse);
+}
+
+/*
+ * LogEntry - Worker Pod에서 생성되는 단일 로그 엔트리
+ * 
+ * 📝 로그 구조 설명:
+ * - Worker Pod의 stdout/stderr에서 캐치된 한 줄의 로그를 표현
+ * - 시간 정보와 함께 구조화된 형태로 전송
+ * - NestJS 서버에서 파싱하여 웹 인터페이스에 실시간 표시
+ * 
+ * 🔍 사용 예시:
+ * {
+ *   "worker_id": "otto-agent-1-abc123",
+ *   "task_id": "task-456", 
+ *   "timestamp": "2025-09-01T12:34:56.789Z",
+ *   "level": "INFO",
+ *   "source": "stdout",
+ *   "message": "Task processing started...",
+ *   "metadata": {"step": "initialization"}
+ * }
+ */
+message LogEntry {
+    // Worker Pod의 고유 식별자 (예: "otto-agent-1-abc123")
+    // Main Pod에서 생성한 Worker Pod의 이름과 일치해야 함
+    string worker_id = 1;
+    
+    // Redis 이벤트에서 온 작업 식별자 (예: "task-456")
+    // 어떤 scale_up 이벤트로 인해 생성된 작업인지 추적
+    string task_id = 2;
+    
+    // 로그 생성 시간 (RFC3339 형식: "2025-09-01T12:34:56.789Z")
+    // Worker Pod 내부에서 로그가 실제로 발생한 시점
+    string timestamp = 3;
+    
+    // 로그 레벨 (INFO, ERROR, DEBUG, WARN 등)
+    // 로그의 중요도나 유형을 나타냄
+    string level = 4;
+    
+    // 로그 소스 (stdout, stderr)
+    // 표준 출력인지 에러 출력인지 구분
+    string source = 5;
+    
+    // 실제 로그 메시지 내용 (cmd창에 출력되는 한 줄)
+    // Worker Pod의 작업 진행 상황, 에러, 디버그 정보 등
+    string message = 6;
+    
+    // 추가 메타데이터 (선택적)
+    // 작업 단계, 파일명, 함수명 등 부가 정보
+    map<string, string> metadata = 7;
+}
+
+/*
+ * LogResponse - NestJS 서버에서 Worker Pod로의 응답 메시지
+ * 
+ * 🔄 응답 처리 로직:
+ * - ACK: 로그 성공적으로 받음, 다음 로그 전송 가능
+ * - RETRY: 일시적 실패, 같은 로그를 다시 전송 필요
+ * - DROP: 영구적 실패, 해당 로그 포기하고 다음으로 진행
+ * 
+ * 📊 백프레셔(Backpressure) 처리:
+ * - 서버 과부하 시 RETRY 응답으로 Worker Pod 전송 속도 조절
+ * - sequence 번호로 로그 순서 보장
+ */
+message LogResponse {
+    /*
+     * Status - 로그 처리 결과 상태
+     * 
+     * ✅ ACK (0): 성공적으로 처리됨
+     * 🔄 RETRY (1): 일시적 오류, 재시도 필요 (네트워크 지연, 서버 부하 등)
+     * ❌ DROP (2): 영구적 오류, 해당 로그 포기 (잘못된 형식, 권한 없음 등)
+     */
+    enum Status {
+        ACK = 0;        // 성공적으로 받고 처리함
+        RETRY = 1;      // 일시적 실패, 재시도 요청
+        DROP = 2;       // 영구적 실패, 로그 포기
+    }
+    
+    // 로그 처리 결과 상태
+    Status status = 1;
+    
+    // 디버깅용 메시지 (선택적)
+    // 에러 이유나 추가 정보 제공
+    string message = 2;
+    
+    // 순서 보장을 위한 시퀀스 번호 (선택적)
+    // 로그 전송 순서와 처리 순서 매칭
+    int64 sequence = 3;
+}
+
+// WorkerRegistration contains information about a starting worker
+message WorkerRegistration {
+    // Worker pod identifier
+    string worker_id = 1;
+    
+    // Task identifier this worker is handling
+    string task_id = 2;
+    
+    // Worker pod metadata
+    WorkerMetadata metadata = 3;
+    
+    // NestJS server endpoint (for health checks)
+    string server_endpoint = 4;
+}
+
+// WorkerMetadata contains Kubernetes pod information
+message WorkerMetadata {
+    // Pod name in Kubernetes
+    string pod_name = 1;
+    
+    // Kubernetes namespace
+    string namespace = 2;
+    
+    // Node where pod is running
+    string node_name = 3;
+    
+    // Pod creation timestamp
+    string created_at = 4;
+    
+    // Labels applied to the pod
+    map<string, string> labels = 5;
+}
+
+// RegistrationResponse confirms worker registration
+message RegistrationResponse {
+    enum Status {
+        SUCCESS = 0;
+        ALREADY_REGISTERED = 1;
+        SERVER_FULL = 2;
+        INVALID_REQUEST = 3;
+    }
+    
+    Status status = 1;
+    string message = 2;
+    
+    // Server-assigned session ID for this worker
+    string session_id = 3;
+    
+    // Recommended logging configuration
+    LoggingConfig config = 4;
+}
+
+// LoggingConfig contains server preferences for logging
+message LoggingConfig {
+    // Maximum logs per second from this worker
+    int32 rate_limit = 1;
+    
+    // Buffer size for batching logs
+    int32 buffer_size = 2;
+    
+    // Maximum message size in bytes
+    int32 max_message_size = 3;
+    
+    // Whether to include full metadata
+    bool include_metadata = 4;
+}
