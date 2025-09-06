@@ -1,0 +1,84 @@
+# Ottoscaler 개발 환경 통합 설정
+# 개발자별 리소스 할당 + 애플리케이션 런타임 설정
+
+# 개발자별 환경 설정
+developers:
+  한진우:
+    eng_name: "hanjinwoo"
+    id: 1
+    resources:
+      kind_cluster: "ottoscaler-hanjinwoo"
+      namespace: "hanjinwoo-dev"
+      env_file: ".env.hanjinwoo.local"
+      
+  장준영:
+    eng_name: "jangjunyoung"
+    id: 2
+    resources:
+      kind_cluster: "ottoscaler-jangjunyoung" 
+      namespace: "jangjunyoung-dev"
+      env_file: ".env.jangjunyoung.local"
+
+  고민지:
+    eng_name: "gominji"
+    id: 3
+    resources:
+      kind_cluster: "ottoscaler-gominji"
+      namespace: "gominji-dev" 
+      env_file: ".env.gominji.local"
+
+  이지윤:
+    eng_name: "leejiyun"
+    id: 4
+    resources:
+      kind_cluster: "ottoscaler-leejiyun"
+      namespace: "leejiyun-dev"
+      env_file: ".env.leejiyun.local"
+
+  김보아:
+    eng_name: "kimboa"
+    id: 5
+    resources:
+      kind_cluster: "ottoscaler-kimboa"
+      namespace: "kimboa-dev"
+      env_file: ".env.kimboa.local"
+
+  유호준:
+    eng_name: "yoohojun" 
+    id: 6
+    resources:
+      kind_cluster: "ottoscaler-yoohojun"
+      namespace: "yoohojun-dev"
+      env_file: ".env.yoohojun.local"
+
+# 애플리케이션 기본 설정
+app_config:
+  # gRPC 서버 설정
+  grpc:
+    port: 9090
+    otto_handler_host: "otto-handler:8080"
+    mock_mode: true  # Mock mode for development/testing
+
+  # Kubernetes 설정  
+  kubernetes:
+    namespace: "default"  # 개발자별로 오버라이드됨
+    service_account: "ottoscaler"
+    
+  # Worker Pod 설정
+  worker:
+    image: "busybox:latest"
+    cpu_limit: "500m"
+    memory_limit: "128Mi"
+    labels:
+      managed-by: "ottoscaler"
+    
+  # 로깅 설정
+  logging:
+    level: "info"
+    format: "json"
+
+# 공통 기본값
+defaults:
+  namespace_suffix: "-dev"
+  kind:
+    cluster_prefix: "ottoscaler-"
