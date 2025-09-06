@@ -4,57 +4,52 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Ottoscaler is a Kubernetes-native auto-scaler written in Go that dynamically manages Otto agent pods based on Redis Streams events. It runs as a main controller pod within a Kubernetes cluster and creates/manages worker pods on demand.
+Ottoscaler is a Kubernetes-native autoscaler written in Go that dynamically manages Otto Agent worker pods. It runs as a main controller pod within a Kubernetes cluster and creates/manages worker pods on demand based on gRPC calls from otto-handler.
 
 ### System Architecture
 
 ```
-External Redis → Kubernetes Main Pod (Ottoscaler) → Otto Agent Pods
+Otto-handler (NestJS) → gRPC → Ottoscaler (Main Pod) → Worker Pods
 ```
 
 - **Main Pod**: Event-driven coordinator running continuously in Kubernetes
-- **Event Processing**: Consumes scale_up/scale_down events from Redis Streams
+- **gRPC Server**: Receives scaling commands from otto-handler on port 9090
 - **Worker Management**: Dynamically creates, monitors, and cleans up Otto Agent pods
-- **Concurrent Processing**: Manages multiple worker pods simultaneously
+- **Log Streaming**: Forwards worker logs to otto-handler via gRPC
 
-## Development Environment
+## Essential Commands
 
-This project uses a containerized development environment for cross-platform consistency.
-
-### Essential Commands
-
-**Environment Management:**
+### Multi-User Environment Setup
 ```bash
-make dev-start    # Start development environment (Redis + dev container)
-make dev-shell    # Enter development container
-make dev-stop     # Stop development environment
-make dev-clean    # Complete cleanup (containers + cache)
+make setup-user USER=한진우    # Auto-configure Kind cluster + namespace
+make status                    # Check entire environment status
+make list-envs                 # Show available environment files
 ```
 
-**Development Workflow (inside container):**
+### Development Workflow (Kubernetes-native)
 ```bash
-go run ./cmd/app     # Run the application
-make test-event      # Send test scaling event to Redis
-make test            # Run tests
-make fmt             # Format code
-make lint            # Run linter
+make build                     # Build Docker image
+make deploy                    # Deploy to Kind cluster as Main Pod
+make logs                      # View Main Pod logs
+kubectl get pods -w           # Monitor worker pod lifecycle
 ```
 
-**Production Commands:**
+### Development Tools
 ```bash
-make build           # Build production image
-make deploy          # Deploy to Kubernetes
-make logs            # View deployed pod logs
+make test                      # Run Go tests with race detection
+make fmt                       # Format Go code
+make lint                      # Run linter (golangci-lint or go vet)
+make proto                     # Generate Protocol Buffer code
+```
+
+### Environment Management
+```bash
+make redis-cli                 # Access Redis CLI (ENV_FILE required)
+make k8s-status                # Check Kubernetes cluster status
+make clean                     # Complete cleanup (Redis + Kind + images)
 ```
 
 ## Code Architecture
-
-### Core Components
-
-- **Main Pod** (`cmd/app/main.go`): Event-driven coordinator that runs continuously
-- **Redis Client** (`internal/redis/client.go`): Manages consumer groups and polls events every 2 seconds
-- **Kubernetes Client** (`internal/k8s/client.go`): Handles pod CRUD operations and cluster interaction
-- **Worker Manager** (`internal/worker/manager.go`): Manages Otto Agent pod lifecycle
 
 ### Go Project Structure (Standard Layout)
 
@@ -62,144 +57,167 @@ make logs            # View deployed pod logs
 ottoscaler/
 ├── cmd/app/                 # Main application entry point
 ├── internal/                # Private packages (not importable)
-│   ├── redis/               # Redis Streams client
+│   ├── config/              # Configuration management
+│   ├── grpc/                # gRPC server and client implementations
 │   ├── k8s/                 # Kubernetes API client  
-│   ├── worker/              # Worker pod lifecycle management
-│   └── app/                 # Application-specific logic
+│   └── worker/              # Worker pod lifecycle management
+├── pkg/proto/v1/            # Generated Protocol Buffer code
+├── proto/                   # Protocol Buffer definitions
 ├── k8s/                     # Kubernetes manifests
-├── docs/                    # Documentation
 └── scripts/                 # Build and utility scripts
 ```
 
+### Core Components
+
+- **Main Pod** (`cmd/app/main.go`): gRPC server that receives scaling commands
+- **gRPC Server** (`internal/grpc/`): Handles scaling requests and log forwarding
+- **Kubernetes Client** (`internal/k8s/`): Manages pod CRUD operations
+- **Worker Manager** (`internal/worker/`): Orchestrates worker pod lifecycle
+- **Config** (`internal/config/`): Centralized configuration management
+
 ### Execution Model
 
-- **Main Thread**: Waits for termination signals (graceful shutdown)
-- **Event Processing Goroutine**: Redis event consumption and worker coordination
-- **Redis Listener Goroutine**: 2-second polling of Redis Streams (blocking with timeout)
+- **Main Thread**: gRPC server listening for scaling commands
 - **Worker Management Goroutines**: Independent creation→monitoring→cleanup for each worker pod
+- **Log Streaming**: Forwards worker logs to otto-handler via gRPC
 
 
 ## Key Technologies
 
 ### Dependencies
 - `k8s.io/client-go` - Kubernetes Go client for cluster interaction
-- `github.com/redis/go-redis/v9` - Redis client for consuming Redis Streams messages
+- `google.golang.org/grpc` - gRPC for communication with otto-handler
+- `github.com/joho/godotenv` - Environment file loading for multi-user setup
 
 ### Environment Variables
 ```bash
-REDIS_HOST=host.docker.internal    # Redis server address
-REDIS_PORT=6379                    # Redis server port
-REDIS_STREAM=otto:scale:events     # Redis stream name
-REDIS_CONSUMER_GROUP=ottoscaler    # Consumer group name
+GRPC_PORT=9090                     # gRPC server port
+NAMESPACE=default                   # Kubernetes namespace for workers
 OTTO_AGENT_IMAGE=busybox:latest    # Worker pod image
+OTTO_HANDLER_HOST=                 # Otto-handler address for log streaming
+LOG_LEVEL=info                      # Logging level
 ```
 
-### Redis Event Format
+### gRPC Services
+
+#### OttoscalerService
+- `ScaleUp`: Creates worker pods for CI/CD tasks
+- `ScaleDown`: Terminates worker pods
+- `GetWorkerStatus`: Queries worker pod status
+
+#### OttoHandlerLogService
+- `ForwardWorkerLogs`: Streams worker logs to otto-handler
+- `NotifyWorkerStatus`: Sends worker status changes
+
+## Multi-Developer Resource Allocation
+
+### Developer Assignments
+
+| Developer | Kind Cluster | Namespace | Environment File |
+|-----------|-------------|-----------|------------------|
+| 한진우 | ottoscaler-hanjinwoo | hanjinwoo-dev | .env.hanjinwoo.local |
+| 장준영 | ottoscaler-jangjunyoung | jangjunyoung-dev | .env.jangjunyoung.local |
+| 고민지 | ottoscaler-gominji | gominji-dev | .env.gominji.local |
+| 이지윤 | ottoscaler-leejiyun | leejiyun-dev | .env.leejiyun.local |
+| 김보아 | ottoscaler-kimboa | kimboa-dev | .env.kimboa.local |
+| 유호준 | ottoscaler-yoohojun | yoohojun-dev | .env.yoohojun.local |
+
+### Development Workflow
+
 ```bash
-XADD otto:scale:events * type scale_up pod_count 3 task_id task-123
+# Terminal 1: Setup and deploy Main Pod
+make setup-user USER=한진우
+make build && make deploy
+make logs
+
+# Terminal 2: Monitor worker pods  
+kubectl get pods -w -n hanjinwoo-dev
+
+# Terminal 3: Test via otto-handler
+# Otto-handler sends gRPC requests to create workers
 ```
-
-## Development Workflow
-
-### Local Development with Kind (Recommended)
-
-1. **Set up Kind Cluster** (one-time setup):
-   ```bash
-   # Install Kind and kubectl
-   curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
-   chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
-   
-   curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-   sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-   
-   # Create Kind cluster
-   kind create cluster --name ottoscaler-dev
-   
-   # Apply RBAC configuration
-   kubectl apply -f k8s/rbac.yaml
-   ```
-
-2. **Start Redis** (if not running):
-   ```bash
-   docker run -d --name redis-hanjinwoo -p 6379:6379 redis:7-alpine
-   ```
-
-3. **Development Cycle**:
-   ```bash
-   # Terminal 1: Run Ottoscaler (connects to Kind cluster)
-   make run-app
-   # or: go run ./cmd/app
-   
-   # Terminal 2: Send test events
-   make test-event
-   # or: go run ./cmd/test-event
-   
-   # Terminal 3: Monitor Worker Pods
-   kubectl get pods -w
-   ```
-
-### Container Development (Alternative)
-
-1. **Start Environment**: `make dev-start` (once)
-2. **Enter Container**: `make dev-shell`
-3. **Edit Code**: Use local IDE (changes sync automatically via volume mount)
-4. **Run Application**: `go run ./cmd/app` (inside container)
-5. **Test**: `make test-event` to send scaling events
-6. **Monitor**: `kubectl get pods -w` to watch worker pod lifecycle
-
-The development environment includes:
-- Go 1.24 + complete toolchain
-- golangci-lint for code quality
-- kubectl for Kubernetes interaction
-- Redis CLI for debugging
-- Starship prompt (🐹 indicator in container)
 
 ## Testing
 
 ### Run Tests
 ```bash
-make test           # Run all tests
+make test           # Run all tests with race detection
 go test ./...       # Alternative direct command
-go test -race ./... # Check for race conditions
-```
-
-### Test Events
-```bash
-make test-event     # Send test scale_up event to Redis (Go-based)
-go run ./cmd/test-event  # Direct command
-make redis-cli      # Access Redis CLI for manual testing
 ```
 
 ### Monitor Worker Pods
 ```bash
 kubectl get pods -l managed-by=ottoscaler  # List worker pods
-kubectl get pods -w                        # Watch pod lifecycle in real-time
-kubectl logs -l app=ottoscaler -f          # Follow main pod logs (when deployed)
+kubectl logs -l app=ottoscaler -f          # Follow main pod logs
 ```
 
-### Kind Cluster Management
+### Debugging
 ```bash
-# Cluster info
-kubectl cluster-info --context kind-ottoscaler-dev
-kubectl get nodes
-
-# Cleanup (when needed)
-kind delete cluster --name ottoscaler-dev
-
-# Recreate cluster
-kind create cluster --name ottoscaler-dev
-kubectl apply -f k8s/rbac.yaml
+kubectl describe pod <pod-name>            # Detailed pod info
+kubectl logs <pod-name> --tail=20          # Worker pod logs
 ```
 
 ## Code Standards
 
+### Go Programming Principles
+
+Go 언어로 안정적이고 유지보수성 높은 프로그램을 작성하려면 다음 원칙들을 일관되게 준수해야 합니다.
+
+#### 1. gofmt로 코드 포맷 일관성 유지
+- 전체 코드베이스에 `gofmt`를 적용해 들여쓰기, 공백, 줄바꿈 규칙을 자동으로 맞춥니다.
+- CI/CD 파이프라인에서 `make fmt` 실행을 필수화합니다.
+
+#### 2. 명확하고 간결한 네이밍
+- 식별자는 짧되 의미가 분명해야 합니다.
+- 패키지 이름은 소문자 단수형으로, 함수·변수·상수명은 `CamelCase` 스타일로 짓습니다.
+- 예: `workerManager`, `ScaleUp`, `GetWorkerStatus`
+
+#### 3. 에러 처리 일관성
+- 함수는 오류를 반환값으로 명시적으로 처리합니다.
+- `if err != nil { return … }` 패턴을 일관되게 사용합니다.
+- `panic`과 `recover`는 예외 상황(초기화 실패 등)에만 제한적으로 씁니다.
+
+#### 4. 인터페이스 최소 원칙
+- 필요한 메서드만 정의한 작은 인터페이스를 설계합니다.
+- 구현체 측에서 인터페이스를 선언하지 않고, 의존하는 쪽에서 선언하도록 합니다.
+
+#### 5. 구성(composition) 우선, 상속 배제
+- 구조체 임베딩으로 기능을 확장하고 재사용합니다.
+- Go는 상속을 제공하지 않으므로, "has-a" 관계로 모듈화합니다.
+
+#### 6. 컨텍스트(Context) 활용
+- `context.Context`를 모든 API에 첫 매개변수로 전달해 취소·타임아웃·데드라인·값 전파를 일원화합니다.
+- 모든 gRPC 메서드와 장시간 실행되는 함수에 context를 전달합니다.
+
+#### 7. 패키지 경계 명확히
+- 각 패키지는 단일 책임 원칙을 따릅니다.
+- 순환 의존성을 피하고, 내부(`internal` 또는 소문자 시작) 패키지와 외부 API를 구분합니다.
+- `internal/` packages는 외부에서 importable하지 않습니다.
+
+#### 8. 병행성 패턴 준수
+- 고루틴은 가볍지만 무분별한 사용을 자제하고, `sync.Mutex`·`sync.WaitGroup` 등 동기화 수단을 활용합니다.
+- 채널로 소통할 때는 버퍼 크기, 닫기(close) 시점, 셀렉션(`select`) 구조를 명확히 관리합니다.
+
+#### 9. 테스트와 문서화
+- 모든 공개 API에는 단위 테스트(`*_test.go`)와 예제 코드(`ExampleXxx`)를 작성합니다.
+- `go doc`으로 문서화가 가능하도록 주석을 함수 및 패키지 선언 바로 위에 위치시킵니다.
+
+#### 10. 정적 분석 도구 사용
+- `go vet`, `golangci-lint`, `staticcheck` 등을 CI에 연동해 코드 품질과 잠재적 버그를 사전 차단합니다.
+- `make lint` 명령어로 정적 분석을 실행합니다.
+
 ### Go Conventions
-- Use standard Go project layout
-- `internal/` packages are not importable externally
-- `pkg/` packages are public APIs
+- Use standard Go project layout (`internal/` for private, `pkg/` for public)
 - Follow Go naming conventions (PascalCase for exported, camelCase for unexported)
 - All long-running operations must use `context.Context`
-- Proper error handling and logging with `log.Printf`
+- Proper error handling with wrapped errors and logging
+- Use `log.Printf` for structured logging
+
+### gRPC Patterns
+- Bidirectional streaming for log forwarding
+- Proper status codes and error messages
+- Reconnection logic with exponential backoff
+- Request validation before processing
 
 
 ## Kubernetes Deployment
@@ -216,16 +234,47 @@ kubectl apply -f k8s/rbac.yaml
 - Automatic cleanup after worker completion
 - Monitors worker status every 2 seconds
 
-## Current Limitations
+## Current Implementation Status
 
-- Scale-down functionality not yet implemented
-- No resource limits on worker pods
-- Basic error handling without retry mechanisms
-- Limited observability and metrics
+### Completed
+- ✅ gRPC server implementation for scaling commands
+- ✅ Worker pod creation and management
+- ✅ Multi-developer environment support
+- ✅ Configuration management system
+- ✅ Basic worker lifecycle management
 
-## Important Notes
+### In Progress
+- 🔄 Log streaming from workers to otto-handler
+- 🔄 Worker status monitoring and notifications
+- 🔄 Scale-down functionality
 
-- The main pod runs **inside** the Kubernetes cluster, not externally
-- Local execution (`go run ./cmd/app`) is for development only
-- Production deployment uses `make deploy` to create Kubernetes resources
-- ServiceAccount permissions allow pod CRUD operations within the cluster
+### TODO
+- ⏳ Worker pod log collection and forwarding
+- ⏳ Retry mechanisms for failed workers
+- ⏳ Metrics and observability
+- ⏳ Resource quota management
+
+## Important Development Notes
+
+### Execution Environment
+- **Main Pod runs INSIDE Kubernetes cluster** - not externally
+- Development cycle: code change → `make build && make deploy` → test in cluster
+- ServiceAccount-based RBAC provides necessary pod management permissions
+- Each developer works in their own Kubernetes namespace
+
+### Multi-Developer Isolation
+- Complete resource isolation per developer (Kind cluster, namespace)
+- Environment files auto-generated with developer-specific configuration
+- No Redis dependency - direct gRPC communication with otto-handler
+
+### Integration Points
+- **gRPC Communication**: Otto-handler → Ottoscaler for scaling commands
+- **Log Streaming**: Ottoscaler → Otto-handler for worker logs
+- **Status Updates**: Real-time worker status notifications
+- **Shared Infrastructure**: Kind clusters for local development
+
+### Testing Strategy
+- Unit tests for individual components
+- Integration tests with Kind cluster
+- gRPC client testing from otto-handler
+- Worker pod lifecycle verification

@@ -1,220 +1,275 @@
-# Ottoscaler 아키텍처
+# Ottoscaler Architecture
 
-## 개요
+## Overview
 
-Ottoscaler는 Redis Streams 이벤트를 기반으로 Otto agent Pod들을 동적으로 스케일링하는 Kubernetes 기반 자동 스케일링 애플리케이션입니다. 스케일링 이벤트를 지속적으로 수신하고 Worker Pod들을 관리하는 Main Pod 역할을 합니다.
+Ottoscaler is a Kubernetes-native autoscaler that dynamically manages Otto Agent worker pods based on gRPC commands from otto-handler. It runs as a main controller pod within a Kubernetes cluster and provides pod orchestration services via gRPC API.
 
-## 시스템 아키텍처
+## System Architecture
 
 ```
-┌─── External Redis ─────┐    ┌─── Kubernetes Cluster ──────────────────────┐
-│                        │    │                                              │
-│  Redis Streams         │    │  ┌─────────────┐    ┌──────────────────────┐ │
-│  otto:scale:events ────┼────┼─▶│ Ottoscaler  │───▶│ Otto Agent Pods      │ │
-│                        │    │  │ (Main Pod)  │    │ (Dynamic Workers)    │ │
-│  XADD otto:scale:events│    │  │ - Always On │    │ - Created on demand  │ │
-│  type=scale_up         │    │  │ - Event     │    │ - Auto cleanup       │ │
-│  pod_count=3           │    │  │   Consumer  │    │                      │ │
-│                        │    │  └─────────────┘    └──────────────────────┘ │
-└────────────────────────┘    └──────────────────────────────────────────────┘
+┌─────────────────────┐         ┌─────────────────────────────────────────┐
+│                     │         │         Kubernetes Cluster              │
+│   Otto-handler      │  gRPC   │                                         │
+│   (NestJS)          ├────────▶│  ┌──────────────┐   ┌──────────────┐  │
+│                     │ :9090   │  │  Ottoscaler  │──▶│ Worker Pods  │  │
+│                     │◀────────┤  │  (Main Pod)  │   │ (Otto Agent) │  │
+│                     │  Logs   │  └──────────────┘   └──────────────┘  │
+└─────────────────────┘         └─────────────────────────────────────────┘
 ```
 
-## 핵심 컴포넌트
+## Core Components
 
 ### 1. Main Pod (Ottoscaler)
-- **위치**: `cmd/app/main.go`
-- **역할**: 이벤트 드리븐 코디네이터
-- **라이프사이클**: 장기 실행 데몬 프로세스
-- **책임**:
-  - Redis Streams에서 스케일링 이벤트 수신
-  - Kubernetes 및 Redis 클라이언트 초기화 및 관리
-  - Worker Pod 생성 및 정리 조율
-  - 우아한 종료 시그널 처리
+- **Location**: `cmd/app/main.go`
+- **Role**: gRPC server and event-driven coordinator
+- **Lifecycle**: Long-running daemon process
+- **Responsibilities**:
+  - Listen for gRPC scaling commands from otto-handler
+  - Initialize and manage Kubernetes client
+  - Orchestrate worker pod creation and cleanup
+  - Stream worker logs back to otto-handler
+  - Handle graceful shutdown signals
 
-### 2. Redis 클라이언트 (`internal/redis/client.go`)
-- **목적**: Redis Streams 통합
-- **주요 기능**:
-  - Consumer Group 관리 (`ottoscaler` 그룹)
-  - 2초마다 이벤트 폴링 (타임아웃 포함 블로킹)
-  - 자동 메시지 확인 응답
-  - 이벤트 파싱 및 검증
+### 2. gRPC Server (`internal/grpc/`)
+- **Purpose**: API endpoint for otto-handler integration
+- **Key Components**:
+  - `server.go`: Main gRPC server implementation
+  - `scaling.go`: Scaling logic and worker configuration
+  - `log_streaming.go`: Log forwarding implementation
+  - `otto_handler_client.go`: Client for sending logs to otto-handler
 
-### 3. Kubernetes 클라이언트 (`internal/k8s/client.go`)
-- **목적**: Kubernetes 클러스터 상호작용
-- **기능**:
-  - 클러스터 내부 및 kubeconfig 기반 인증
-  - Pod CRUD 작업
-  - Pod 상태 모니터링
-  - 네임스페이스 범위 작업
+### 3. Kubernetes Client (`internal/k8s/client.go`)
+- **Purpose**: Kubernetes cluster interaction
+- **Features**:
+  - In-cluster and kubeconfig-based authentication
+  - Pod CRUD operations
+  - Pod status monitoring
+  - Namespace-scoped operations
 
-### 4. Worker 관리자 (`internal/worker/manager.go`)
-- **목적**: Otto Agent Pod 라이프사이클 관리
-- **기능**:
-  - 동시 Worker Pod 생성
-  - Pod 완료 모니터링 (2초 간격 폴링)
-  - 완료 후 자동 정리
-  - 에러 처리 및 복구
+### 4. Worker Manager (`internal/worker/manager.go`)
+- **Purpose**: Otto Agent pod lifecycle management
+- **Features**:
+  - Concurrent worker pod creation
+  - Pod completion monitoring (2-second interval polling)
+  - Automatic cleanup after completion
+  - Error handling and recovery
 
-## 실행 흐름
+### 5. Configuration (`internal/config/config.go`)
+- **Purpose**: Centralized configuration management
+- **Features**:
+  - Environment-based configuration
+  - Default values for all settings
+  - Validation of required parameters
 
-### 1. 시작 시퀀스
+## Execution Flow
+
+### 1. Startup Sequence
 ```go
 main() {
-    // 1. 환경 설정 읽기
-    redisAddr := getEnv("REDIS_HOST", "host.docker.internal") + ":6379"
-    streamName := getEnv("REDIS_STREAM", "otto:scale:events")
+    // 1. Load configuration
+    config := loadConfig()
     
-    // 2. 클라이언트 초기화
-    k8sClient := k8s.NewClient("default")
-    redisClient := redis.NewClient(redisAddr)
-    workerManager := worker.NewManager(k8sClient)
+    // 2. Initialize Kubernetes client
+    k8sClient := k8s.NewClient(config.Kubernetes)
     
-    // 3. 연결 테스트
-    redisClient.Ping() // Redis 사용 불가 시 빠른 실패
+    // 3. Create worker manager
+    workerManager := worker.NewManager(k8sClient, config.Worker)
     
-    // 4. 이벤트 처리 시작
-    eventChan := redisClient.ListenForScaleEvents()
-    go handleScaleEvents(ctx, eventChan, workerManager)
+    // 4. Initialize gRPC server
+    grpcServer := grpc.NewServer(config, k8sClient, workerManager)
     
-    // 5. 종료 시그널 대기
-    <-sigChan // SIGTERM/SIGINT까지 블로킹
+    // 5. Start gRPC server
+    go grpcServer.Start(config.GRPC.Port)
+    
+    // 6. Wait for shutdown signal
+    <-sigChan // Block until SIGTERM/SIGINT
 }
 ```
 
-### 2. 이벤트 처리 루프
+### 2. Scaling Request Handling
 ```go
-handleScaleEvents() {
-    for {
-        select {
-        case <-ctx.Done():
-            return // 우아한 종료
+ScaleUp(ctx, request) {
+    // 1. Validate request
+    if err := validateScaleRequest(request); err != nil {
+        return nil, err
+    }
+    
+    // 2. Create worker configurations
+    configs := createWorkerConfigs(request)
+    
+    // 3. Launch workers concurrently
+    results := workerManager.RunMultipleWorkers(ctx, configs)
+    
+    // 4. Return response with created pod names
+    return &ScaleResponse{
+        Status: SUCCESS,
+        WorkerPodNames: results.PodNames,
+    }, nil
+}
+```
+
+### 3. Worker Pod Management
+```go
+RunMultipleWorkers(configs) {
+    var wg sync.WaitGroup
+    results := make(chan WorkerResult, len(configs))
+    
+    for _, config := range configs {
+        wg.Add(1)
+        go func(cfg WorkerConfig) {
+            defer wg.Done()
             
-        case event := <-eventChan:
-            switch event.Type {
-            case "scale_up":
-                handleScaleUp(event.PodCount, event.Metadata)
-            case "scale_down":
-                handleScaleDown(event.PodCount) // TODO: 미구현
-            }
-        }
-    }
-}
-```
-
-### 3. Worker Pod 관리
-```go
-handleScaleUp(podCount, metadata) {
-    // Worker 설정 생성
-    configs := []WorkerConfig{
-        {
-            Name: "otto-agent-1-{timestamp}",
-            Image: "busybox:latest",
-            Command: ["sh", "-c"],
-            Args: ["echo 'Starting...'; sleep 30; echo 'Done!'"],
-            Labels: {"managed-by": "ottoscaler"}
-        }
-        // ... 더 많은 Worker들
+            // Create pod
+            pod := createPod(cfg)
+            
+            // Monitor until completion
+            monitorPod(pod)
+            
+            // Cleanup
+            deletePod(pod)
+            
+            results <- WorkerResult{...}
+        }(config)
     }
     
-    // 모든 Worker 동시 실행
-    workerManager.RunMultipleWorkers(configs)
+    wg.Wait()
+    return collectResults(results)
 }
 ```
 
-## 동시성 모델
+## Concurrency Model
 
-### 고루틴 구조
+### Goroutine Structure
 ```
 Main Thread
-├── 시그널 핸들러 (SIGTERM/SIGINT 블로킹 대기)
+├── Signal Handler (blocking wait for SIGTERM/SIGINT)
 │
-├── 이벤트 핸들러 고루틴
-│   └── Redis 스케일 이벤트 처리
+├── gRPC Server Goroutine
+│   ├── ScaleUp Handler
+│   ├── ScaleDown Handler
+│   └── GetWorkerStatus Handler
 │
-├── Redis 리스너 고루틴  
-│   └── 2초마다 Redis Streams 폴링
+├── Log Streaming Goroutine
+│   └── Forward worker logs to otto-handler
 │
-└── Worker 관리 고루틴들 (Worker별)
-    ├── Worker 1: 생성 → 모니터링 → 정리
-    ├── Worker 2: 생성 → 모니터링 → 정리
-    └── Worker N: 생성 → 모니터링 → 정리
+└── Worker Management Goroutines (per worker)
+    ├── Worker 1: Create → Monitor → Cleanup
+    ├── Worker 2: Create → Monitor → Cleanup
+    └── Worker N: Create → Monitor → Cleanup
 ```
 
-### 블로킹 vs 비블로킹 작업
+## gRPC Services
 
-**블로킹 작업** (의도적):
-- Main 스레드의 종료 시그널 대기
-- 2초 타임아웃을 가진 Redis XReadGroup
-- Worker 완료 모니터링 (2초 간격 폴링)
+### OttoscalerService
+Primary service for scaling operations:
 
-**비블로킹 작업**:
-- 이벤트 채널 통신
-- 동시 Worker Pod 관리
-- Kubernetes API 호출 (컨텍스트 취소 포함)
-
-### 주요 특징
-
-1. **이벤트 드리븐**: Redis 이벤트 수신 시에만 동작
-2. **동시 처리**: 여러 Worker Pod를 동시에 관리  
-3. **자동 정리**: Worker들은 완료 후 자동 삭제
-4. **우아한 종료**: SIGTERM/SIGINT 시 적절한 정리
-5. **장애 내성**: 개별 Worker 실패 시에도 계속 운영
-
-## 설정
-
-### 환경 변수
-```bash
-REDIS_HOST=host.docker.internal          # Redis 서버 주소
-REDIS_PORT=6379                          # Redis 서버 포트
-REDIS_PASSWORD=                          # Redis 비밀번호 (선택사항)
-REDIS_STREAM=otto:scale:events           # Redis 스트림 이름
-REDIS_CONSUMER_GROUP=ottoscaler          # Consumer Group 이름
-REDIS_CONSUMER=ottoscaler-1              # Consumer 인스턴스 이름
-OTTO_AGENT_IMAGE=busybox:latest          # Worker Pod 이미지
-```
-
-### Redis 이벤트 형식
-```bash
-XADD otto:scale:events * type scale_up pod_count 3 task_id task-123
-```
-
-### 스케일 이벤트 예시
-```json
-{
-  "EventID": "1756659802903-0",
-  "Type": "scale_up",
-  "PodCount": 3,
-  "Timestamp": "2025-08-31T17:03:22Z",
-  "Metadata": {
-    "task_id": "task-123"
-  }
+```protobuf
+service OttoscalerService {
+    rpc ScaleUp(ScaleRequest) returns (ScaleResponse);
+    rpc ScaleDown(ScaleRequest) returns (ScaleResponse);
+    rpc GetWorkerStatus(WorkerStatusRequest) returns (WorkerStatusResponse);
 }
 ```
 
-## 배포
+### OttoHandlerLogService
+Service for log forwarding:
 
-### Kubernetes 리소스
-- **ServiceAccount**: `ottoscaler` 
-- **ClusterRole**: Pod 관리 권한
-- **Deployment**: 단일 복제본 Main Pod
-- **ConfigMap/Secrets**: 환경 설정
-
-### 개발 명령어
-```bash
-# 인프라 관리
-make redis           # Redis 컨테이너 시작
-make k8s-deploy      # Kubernetes 배포
-make test-event      # 테스트 스케일 이벤트 전송
-
-# 모니터링
-make k8s-logs        # ottoscaler 로그 확인
-kubectl get pods -l managed-by=ottoscaler  # Worker Pod 확인
+```protobuf
+service OttoHandlerLogService {
+    rpc ForwardWorkerLogs(stream WorkerLogEntry) returns (stream LogForwardResponse);
+    rpc NotifyWorkerStatus(WorkerStatusNotification) returns (WorkerStatusAck);
+}
 ```
 
-## 제한사항 및 TODO
+## Configuration
 
-1. **Scale Down**: 현재 미구현
-2. **Worker 지속성**: 장기 실행 Worker들의 상태 관리 없음
-3. **리소스 제한**: Worker Pod들에 CPU/메모리 제약 없음
-4. **모니터링**: 제한적인 관찰가능성과 메트릭
-5. **에러 복구**: 기본적인 에러 처리만 있고, 재시도 메커니즘 없음
+### Environment Variables
+```bash
+# gRPC Server
+GRPC_PORT=9090
+OTTO_HANDLER_HOST=otto-handler:8080
+
+# Kubernetes
+NAMESPACE=default
+OTTO_AGENT_IMAGE=busybox:latest
+
+# Worker Resources
+WORKER_CPU_LIMIT=500m
+WORKER_MEMORY_LIMIT=128Mi
+
+# Logging
+LOG_LEVEL=info
+```
+
+## Deployment
+
+### Kubernetes Resources
+- **ServiceAccount**: `ottoscaler`
+- **ClusterRole**: Pod management permissions
+- **ClusterRoleBinding**: Binds role to ServiceAccount
+- **Deployment**: Single replica main pod
+- **Service**: gRPC endpoint exposure (optional)
+
+### Development Commands
+```bash
+# Infrastructure
+make setup-user USER=한진우    # Setup Kind cluster
+make build                     # Build Docker image
+make deploy                    # Deploy to Kubernetes
+
+# Testing
+kubectl port-forward deployment/ottoscaler 9090:9090
+./test-scaling -action scale-up -workers 3
+
+# Monitoring
+make logs                      # View ottoscaler logs
+kubectl get pods -l managed-by=ottoscaler  # View worker pods
+```
+
+## Security Considerations
+
+### Kubernetes Security
+- **RBAC**: Least privilege pod management permissions
+- **ServiceAccount**: Dedicated account for authentication
+- **Namespace Isolation**: Multi-tenant support
+
+### gRPC Security
+- **Development**: Currently using insecure connections
+- **Production**: TLS/mTLS planned
+- **Authentication**: Token-based auth to be added
+
+## Performance Characteristics
+
+### Scalability
+- Single main pod (no HA currently)
+- Can manage hundreds of worker pods
+- 2-second polling interval for status checks
+- Concurrent worker creation
+
+### Resource Usage
+- **Main Pod**: ~50MB memory, minimal CPU
+- **Worker Pods**: Configurable limits
+- **Network**: Minimal gRPC traffic
+
+## Current Limitations
+
+1. **High Availability**: Single point of failure (main pod)
+2. **Scale Down**: Not fully implemented
+3. **Log Collection**: Basic implementation, needs enhancement
+4. **Metrics**: Limited observability
+5. **Error Recovery**: Basic error handling, no retry mechanisms
+
+## Future Enhancements
+
+### Short Term
+- Complete log streaming implementation
+- Implement scale-down functionality
+- Add retry mechanisms for failed workers
+- Enhance error handling and recovery
+
+### Long Term
+- High availability with leader election
+- Prometheus metrics and Grafana dashboards
+- OpenTelemetry tracing
+- Advanced scheduling and resource management
+- WebSocket support for real-time updates

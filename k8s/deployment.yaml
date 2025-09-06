@@ -20,21 +20,18 @@ spec:
         - name: ottoscaler
           image: ottoscaler:latest
           imagePullPolicy: Never # For local development
+          ports:
+            - containerPort: 9090
+              name: grpc
           env:
-            - name: REDIS_HOST
-              value: "host.docker.internal" # Access Docker Compose Redis from K8s
-            - name: REDIS_PORT
-              value: "6379"
-            - name: REDIS_PASSWORD
-              value: ""
-            - name: REDIS_STREAM
-              value: "otto:scale:events"
-            - name: REDIS_CONSUMER_GROUP
-              value: "ottoscaler"
-            - name: REDIS_CONSUMER
-              value: "ottoscaler-1"
+            - name: GRPC_PORT
+              value: "9090"
+            - name: NAMESPACE
+              value: "default"
             - name: OTTO_AGENT_IMAGE
               value: "busybox:latest"
+            - name: LOG_LEVEL
+              value: "info"
           resources:
             requests:
               memory: "64Mi"

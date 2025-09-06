@@ -1,343 +1,325 @@
 # Ottoscaler
 
-Kubernetes 네이티브 오토스케일러 - Redis Streams 기반 동적 Pod 관리 시스템입니다.
+gRPC 기반 Kubernetes Worker Pod 오케스트레이터 - Otto CI/CD 플랫폼의 동적 워커 관리 시스템
 
 ## 🎯 프로젝트 개요
 
-Ottoscaler는 **Kubernetes 클러스터 내에서 Main Pod로 실행**되는 Go 애플리케이션입니다. Redis Streams 이벤트를 기반으로 Otto agent Worker Pods를 동적으로 스케일링하고 관리합니다.
+Ottoscaler는 Kubernetes 클러스터 내에서 Main Pod로 실행되는 Go 애플리케이션입니다. Otto-handler로부터 gRPC 요청을 받아 Worker Pod를 동적으로 생성하고 관리합니다.
 
 ### 핵심 아키텍처
+
 ```
-┌─── External Redis ─────┐    ┌─── Kubernetes Cluster ──────────────────────┐
-│                        │    │                                              │
-│  Redis Streams         │    │  ┌─────────────┐    ┌──────────────────────┐ │
-│  otto:scale:events ────┼────┼─▶│ Ottoscaler  │───▶│ Otto Agent Pods      │ │
-│                        │    │  │ (Main Pod)  │    │ (Dynamic Workers)    │ │
-│                        │    │  └─────────────┘    └──────────────────────┘ │
-└────────────────────────┘    └──────────────────────────────────────────────┘
+Otto-handler (NestJS) → gRPC → Ottoscaler (Main Pod) → Worker Pods
 ```
 
-### 핵심 구조
-- **Main Pod (Ottoscaler)**: Kubernetes 내에서 상시 실행되는 컨트롤러 Pod
-- **Worker Pods**: Main Pod가 동적으로 생성/관리하는 Otto agent 작업 실행 Pod
-- **Redis Streams**: 클러스터 외부의 스케일링 이벤트 전달 메커니즘
-- **Pod 오케스트레이션**: Main Pod가 Worker Pod들의 전체 라이프사이클 관리
+- **Main Pod**: Kubernetes 내에서 상시 실행되는 gRPC 서버
+- **gRPC Server**: otto-handler의 스케일링 명령 수신 (포트 9090)
+- **Worker Management**: Otto Agent Pod 동적 생성/모니터링/정리
+- **Log Streaming**: Worker 로그를 otto-handler로 실시간 전달 (구현 중)
 
-## 🛠️ 기술 스택
+## 🚀 빠른 시작
 
-- **Runtime**: Go 1.24 with standard project layout
-- **Kubernetes**: client-go for cluster API interaction  
-- **Redis**: go-redis/v9 for Streams message consumption
-- **Development**: Kind (Kubernetes in Docker) for local clusters
-- **Container**: Multi-stage Docker build with Alpine base
-- **Orchestration**: ServiceAccount-based RBAC for pod management
-
-## 🚀 빠른 시작 (Kubernetes 환경 개발)
-
-### 자동 개발환경 설정 (권장)
+### 1. 환경 구성 및 배포
 
 ```bash
-# 1. 개발환경 자동 설정 (Kind 클러스터 + Redis)
+# Kind 클러스터 및 환경 설정 (최초 1회)
 make setup-user USER=한진우
-# 또는: ./scripts/setup-user-env.sh 한진우
 
-# 2. Main Pod 배포
-make build && make deploy
+# Docker 이미지 빌드
+make build
 
-# 3. 테스트 이벤트 전송
-ENV_FILE=".env.jinwoo.local" make test-event
+# Kind 클러스터에 배포
+make deploy
 
-# 4. Worker Pod 상태 모니터링
+# 로그 확인
+make logs
+```
+
+### 2. 테스트 실행
+
+```bash
+# 테스트 바이너리 빌드
+go build -o test-scaling ./cmd/test-scaling
+
+# 포트 포워딩 (별도 터미널에서 실행)
+kubectl port-forward deployment/ottoscaler 9090:9090
+
+# Worker Pod 생성 테스트
+./test-scaling -action scale-up -workers 3 -task my-task-123
+
+# Worker 상태 조회
+./test-scaling -action status
+
+# Scale down 테스트
+./test-scaling -action scale-down -workers 0
+```
+
+### 3. 동작 확인
+
+```bash
+# Worker Pod 모니터링
 kubectl get pods -w
+
+# Ottoscaler 로그 확인
+kubectl logs -l app=ottoscaler -f
+
+# 생성된 Worker Pod 확인
+kubectl get pods -l managed-by=ottoscaler
 ```
 
-### 개발자별 리소스 할당
+## 📋 테스트 도구
 
-| 개발자 | Redis | Kind 클러스터 | 네임스페이스 | 환경파일 |
-|--------|-------|---------------|-------------|----------|
-| 한진우 | 6379 | ottoscaler-jinwoo | jinwoo-dev | .env.jinwoo.local |
-| 장준영 | 6380 | ottoscaler-junyoung | junyoung-dev | .env.junyoung.local |
-| 고민지 | 6381 | ottoscaler-minji | minji-dev | .env.minji.local |
-| 이지윤 | 6382 | ottoscaler-jiyoon | jiyoon-dev | .env.jiyoon.local |
-| 김보아 | 6383 | ottoscaler-boa | boa-dev | .env.boa.local |
-| 유호준 | 6384 | ottoscaler-hojun | hojun-dev | .env.hojun.local |
+### test-scaling: 스케일링 테스트
 
-## 📋 주요 명령어
+`test-scaling`은 otto-handler 역할을 대신하여 Ottoscaler의 스케일링 API를 테스트하는 클라이언트입니다.
 
-### 🚀 Kubernetes 환경 개발
+### 사용법
 
 ```bash
-# 환경 설정 (최초 1회)
-make setup-user USER=한진우
+# 도움말 보기
+./test-scaling -h
 
-# Main Pod 개발 사이클
-make build                    # Docker 이미지 빌드
-make deploy                   # Kind 클러스터에 배포
-make logs                     # Main Pod 로그 확인
+# Scale up 예제
+./test-scaling -action scale-up -workers 5 -task build-123
 
-# 테스트 및 디버깅
-ENV_FILE=".env.jinwoo.local" make test-event  # Redis 이벤트 전송
-make status                   # 전체 환경 상태 확인
-kubectl get pods -w          # Worker Pod 라이프사이클 모니터링
+# 상태 조회
+./test-scaling -action status
+
+# Scale up 후 상태 모니터링
+./test-scaling -action scale-up -workers 3 -watch
 ```
 
-### 개발 도구
+### 옵션
+
+- `-action`: 수행할 작업 (`scale-up`, `scale-down`, `status`)
+- `-workers`: 생성/관리할 Worker 수
+- `-task`: 작업 ID (자동 생성 가능)
+- `-server`: Ottoscaler 서버 주소 (기본값: `localhost:9090`)
+- `-watch`: 스케일링 후 상태 모니터링
+- `-timeout`: 요청 타임아웃 (기본값: 30초)
+
+### test-pipeline: Pipeline 실행 테스트
+
+`test-pipeline`은 CI/CD Pipeline 실행을 테스트하는 도구입니다.
+
 ```bash
-make test         # Go 테스트 실행
-make fmt          # 코드 포맷팅
-make lint         # 린트 검사
-make proto        # Protocol Buffer 코드 생성 (TODO)
+# 간단한 순차 Pipeline (build → test → deploy)
+./test-pipeline -type simple
+
+# 복잡한 CI/CD Pipeline (병렬 테스트 포함)
+./test-pipeline -type full
+
+# 병렬 실행 테스트 (동시 실행 Stage)
+./test-pipeline -type parallel
 ```
 
-### 환경 관리
-```bash
-make clean        # 모든 리소스 정리 (Redis + Kind + 이미지)
-make redis-cli    # Redis CLI 접속
-make k8s-status   # Kubernetes 클러스터 상태 확인
-```
+**옵션:**
+- `-server`: Ottoscaler 서버 주소 (기본값: localhost:9090)
+- `-type`: Pipeline 유형 (simple, full, parallel)
+- `-id`: Pipeline ID (자동 생성)
+- `-repo`: Git 저장소 URL
+- `-sha`: Commit SHA
+- `-timeout`: 실행 타임아웃 (기본값: 10분)
 
-## 🏗️ 프로젝트 구조 (Go 표준 레이아웃)
+## 🏗️ 프로젝트 구조
 
 ```
 ottoscaler/
-├── cmd/                    # 메인 애플리케이션들
-│   ├── app/               # Main Pod 애플리케이션 엔트리포인트
-│   └── test-event/        # Redis 테스트 이벤트 전송 도구
-├── internal/              # 내부 패키지 (외부 노출 금지)
-│   ├── redis/             # Redis Streams 클라이언트
-│   ├── k8s/               # Kubernetes API 클라이언트
-│   ├── worker/            # Worker Pod 라이프사이클 관리
-│   └── app/               # 애플리케이션별 내부 로직
-├── pkg/                   # 외부 사용 가능한 라이브러리 코드
-│   └── proto/v1/          # 생성된 Protocol Buffer 코드
-├── proto/                 # Protocol Buffer 정의 파일
-├── k8s/                   # Kubernetes 매니페스트
-├── scripts/               # 빌드 및 유틸리티 스크립트
-└── docs/                  # 문서
+├── cmd/
+│   ├── app/                 # Main Pod 애플리케이션
+│   └── test-scaling/         # 테스트 클라이언트
+├── internal/
+│   ├── config/              # 설정 관리
+│   ├── grpc/                # gRPC 서버 구현
+│   ├── k8s/                 # Kubernetes 클라이언트
+│   └── worker/              # Worker Pod 관리
+├── pkg/proto/v1/            # Protocol Buffer 생성 코드
+├── proto/                   # Protocol Buffer 정의
+├── k8s/                     # Kubernetes 매니페스트
+└── scripts/                 # 유틸리티 스크립트
+```
+
+## 🔧 주요 명령어
+
+### 개발 도구
+
+```bash
+make test          # Go 테스트 실행
+make fmt           # 코드 포맷팅
+make lint          # 린트 검사
+make proto         # Protocol Buffer 코드 생성
+```
+
+### 환경 관리
+
+```bash
+make status        # 전체 환경 상태 확인
+make k8s-status    # Kubernetes 클러스터 상태
+make clean         # 모든 리소스 정리
+```
+
+## 📊 테스트 시나리오
+
+### 현재 구현된 기능
+
+- ✅ **Pipeline 실행**: CI/CD Pipeline 관리
+  - DAG 기반 의존성 해결
+  - 병렬 Stage 실행 지원
+  - 실시간 진행 상황 스트리밍
+  - Stage별 재시도 정책
+
+- ✅ **ScaleUp/ScaleDown**: Worker Pod 관리
+  - gRPC 요청 기반 동적 생성
+  - 지정된 수만큼 Worker Pod 생성
+  - 자동 생명주기 관리
+
+- ✅ **gRPC 서버**: 완전한 API 구현
+  - ExecutePipeline 스트리밍 RPC
+  - ScaleUp/ScaleDown 동기 RPC
+  - GetWorkerStatus 상태 조회
+  - Mock 모드 지원
+
+### 구현 중인 기능
+
+- 🔄 **Log Forwarding**: Worker → Otto-handler 로그 전달
+- 🔄 **Status Notifications**: 실시간 상태 변경 알림
+- 🔄 **Metrics Collection**: Prometheus 메트릭 수집
+
+## 🛠️ 기술 스택
+
+- **Runtime**: Go 1.24
+- **Kubernetes**: client-go for API interaction
+- **gRPC**: google.golang.org/grpc v1.68.1
+- **Protocol Buffers**: google.golang.org/protobuf v1.36.1
+- **Development**: Kind for local Kubernetes
+- **Container**: Multi-stage Docker build
+
+## 🏗️ 아키텍처
+
+```
+Otto-handler (NestJS)
+        |
+   gRPC (9090)
+        v
+Ottoscaler (Main Pod)
+        |
+   Kubernetes API
+        v
+    Worker Pods
 ```
 
 ### 핵심 컴포넌트
-- **Main Pod** (`cmd/app/main.go`): 이벤트 드리븐 컨트롤러 (Kubernetes 내부 실행)
-- **Redis Client** (`internal/redis/client.go`): Consumer Group 관리, 2초 간격 폴링
-- **Kubernetes Client** (`internal/k8s/client.go`): 클러스터 내부 인증, Pod CRUD 작업
-- **Worker Manager** (`internal/worker/manager.go`): 동시 Worker Pod 생성/완료/정리
 
-## 🔧 개발 환경
+1. **gRPC Server**: 스케일링 및 Pipeline 실행 요청 처리
+2. **Pipeline Executor**: DAG 의존성 해결 및 Stage 병렬 실행
+3. **Worker Manager**: Pod 생명주기 관리 및 모니터링
+4. **Log Streaming**: 실시간 로그 수집 및 전달
 
-### Kubernetes 환경에서 Main Pod 개발
+## 🤝 통합 포인트
 
-**핵심 철학**: **실제 Kubernetes 환경에서 Main Pod로 개발**
-- Kind로 로컬 K8s 클러스터 구성
-- Main Pod로 배포하여 실제 동작 확인  
-- 코드 수정 → 이미지 재빌드 → Pod 재배포
+### Otto-handler와의 연동
 
-**개발 워크플로우**:
-```bash
-# VS Code에서 코드 수정
-# ↓
-make build && make deploy    # 이미지 빌드 + Main Pod 재배포
-# ↓ 
-kubectl get pods -w         # Worker Pod 생성/관리 확인
-```
+1. **Scaling Commands**: otto-handler → Ottoscaler
+   - ScaleUp/ScaleDown 요청
+   - Worker 상태 조회
 
-### 공유 리소스
+2. **Log Forwarding**: Ottoscaler → otto-handler
+   - Worker Pod 로그 스트리밍
+   - 상태 변경 알림
 
-**Redis 컨테이너**: `redis-{개발자영문명}`
-- otto-handler와 공유 사용
-- 자동 생성/재사용 로직 적용
+## 👥 멀티 개발자 환경
 
-**Kind 클러스터**: `ottoscaler-{개발자영문명}`
-- 개발자별 독립 Kubernetes 환경
-- ServiceAccount 기반 RBAC 설정
+각 개발자는 독립된 Kind 클러스터와 네임스페이스를 사용합니다:
 
-### 환경 설정
+| 개발자 | Kind 클러스터 | 네임스페이스 |
+|--------|--------------|-------------|
+| 한진우 | ottoscaler-hanjinwoo | hanjinwoo-dev |
+| 장준영 | ottoscaler-jangjunyoung | jangjunyoung-dev |
+| 고민지 | ottoscaler-gominji | gominji-dev |
+| 이지윤 | ottoscaler-leejiyun | leejiyun-dev |
+| 김보아 | ottoscaler-kimboa | kimboa-dev |
+| 유호준 | ottoscaler-yoohojun | yoohojun-dev |
 
-자동 생성되는 `.env.jinwoo.local` 파일 예시:
-```env
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_STREAM=otto:scale:events
-REDIS_CONSUMER_GROUP=ottoscaler-jinwoo
-NAMESPACE=jinwoo-dev
-OTTO_AGENT_IMAGE=busybox:latest
-KIND_CLUSTER_NAME=ottoscaler-jinwoo
-```
-
-## 🎯 실행 모델
-
-### 동시성 구조
-- **메인 스레드**: 종료 시그널 대기 (graceful shutdown)
-- **이벤트 처리 고루틴**: Redis 이벤트 수신 및 Worker 생성 코디네이션
-- **Redis 리스닝 고루틴**: 2초마다 Redis Streams 폴링 (블로킹 타임아웃)
-- **Worker 관리 고루틴들**: 각 Worker Pod를 독립적으로 생성→모니터링→정리
-
-### Redis 이벤트 처리 플로우
-```bash
-# 이벤트 전송
-XADD otto:scale:events * type scale_up pod_count 3 task_id task-123
-
-# Main Pod에서 처리
-📨 Received scaling event: scale_up (PodCount: 3)
-🚀 Creating worker pod: otto-agent-XXX-1
-🚀 Creating worker pod: otto-agent-XXX-2  
-🚀 Creating worker pod: otto-agent-XXX-3
-⏳ Monitoring pod completion...
-✅ All 3 workers completed successfully!
-🧹 Cleaning up pods...
-```
-
-## 🔗 연동 프로젝트
-
-### Otto Handler (NestJS 백엔드)
-- **Redis 공유**: 스케일링 이벤트 수신
-- **포트**: 6379-6384 공유
-- **통신**: Redis Streams → gRPC 스트리밍 (예정)
-
-### 향후 gRPC 통신 (TODO)
-- **양방향 스트리밍**: Worker Pod ↔ NestJS 서버
-- **로그 전송**: 실시간 빌드/테스트 로그 스트리밍
-- **Protocol Buffer**: `proto/log_streaming.proto` 기반
-
-## 📊 Kubernetes 배포
-
-### RBAC 및 ServiceAccount
-- **ServiceAccount**: `ottoscaler` (네임스페이스별)
-- **ClusterRole**: Pod 관리 권한 (생성/조회/삭제)
-- **Deployment**: 단일 레플리카 Main Pod
-- **Labels**: Worker Pod에 `managed-by=ottoscaler` 라벨 적용
-
-### 리소스 관리
-- Main Pod가 클러스터 내부에서 지속 실행
-- Worker Pod 온디맨드 생성/삭제
-- 자동 정리 및 실패 시 재시도 로직
-- 개발자별 네임스페이스 격리
-
-## 🧪 테스팅
-
-### 테스트 전략
-```bash
-go test ./...                    # 전체 테스트 실행
-go test -race ./...              # 레이스 컨디션 검사
-go test -cover ./...             # 커버리지 측정
-```
-
-### 통합 테스트 시나리오
-1. **Redis 연결 테스트**: `make test-event`
-2. **Worker Pod 생성 테스트**: 스케일링 이벤트 전송 후 확인
-3. **부하 테스트**: 다중 Worker Pod 동시 생성
-4. **실패 복구 테스트**: Pod 실패 시 정리 로직 확인
-
-## 💡 개발 시나리오
-
-### 일반적인 개발 플로우
+### 개발자별 환경 설정
 
 ```bash
-# Terminal 1: Main Pod 배포 및 모니터링
+# 개발자별 환경 자동 구성
 make setup-user USER=한진우
-make build && make deploy
-make logs
 
-# Terminal 2: Worker Pod 상태 모니터링  
-kubectl get pods -w -n jinwoo-dev
-
-# Terminal 3: 테스트 이벤트 전송
-ENV_FILE=".env.jinwoo.local" make test-event
-
-# VS Code: 코드 수정 후
-make build && make deploy        # 재배포
+# 환경 상태 확인
+make status
 ```
 
-### 서버 앱 통합 개발
+## 📝 환경 변수
 
-각 개발자는 독립적인 개발 환경을 가집니다:
-```
-개발자A 서버앱 → Redis A → Ottoscaler A → Kind Cluster A → Worker Pods A
-개발자B 서버앱 → Redis B → Ottoscaler B → Kind Cluster B → Worker Pods B
-```
-
-## 🛠️ 문제 해결
-
-### 일반적인 문제
-
-**Redis 연결 실패**:
 ```bash
-ENV_FILE=".env.jinwoo.local" make redis-cli
-redis-cli> PING                # Redis 연결 테스트
+GRPC_PORT=9090                  # gRPC 서버 포트
+NAMESPACE=default                # Worker Pod 네임스페이스
+OTTO_AGENT_IMAGE=busybox:latest # Worker Pod 이미지
+LOG_LEVEL=info                   # 로깅 레벨
 ```
 
-**Kind 클러스터 문제**:
+## 🔍 디버깅
+
+### Pod 상태 확인
+
 ```bash
-make k8s-status                 # 클러스터 상태 확인
-kubectl get pods -A            # 모든 네임스페이스 Pod 확인
-kind get clusters              # Kind 클러스터 목록
+# Ottoscaler Main Pod 로그
+kubectl logs -l app=ottoscaler -f
+
+# Worker Pod 목록
+kubectl get pods -l managed-by=ottoscaler
+
+# Pod 상세 정보
+kubectl describe pod <pod-name>
 ```
 
-**Worker Pod 디버깅**:
+### 일반적인 문제 해결
+
+**Image Pull 에러**:
 ```bash
-kubectl get pods -l managed-by=ottoscaler -n jinwoo-dev
-kubectl logs -l managed-by=ottoscaler -n jinwoo-dev --tail=20
-kubectl describe pod <pod-name> -n jinwoo-dev
+# Docker 이미지를 Kind 클러스터에 로드
+make build
+kind load docker-image ottoscaler:latest --name ottoscaler-hanjinwoo
 ```
 
-### 개발 환경 재설정
+**포트 포워딩 실패**:
 ```bash
-make clean                     # 모든 리소스 정리
-make setup-user USER=한진우     # 환경 재생성
+# 기존 포트 포워딩 프로세스 종료
+pkill -f "port-forward.*9090"
+
+# 다시 시작
+kubectl port-forward deployment/ottoscaler 9090:9090
 ```
 
-## 🔒 보안 고려사항
+## 🚦 프로젝트 상태
 
-### Kubernetes 보안
-- **최소 권한 원칙**: RBAC에서 Pod 관리에 필요한 권한만 부여
-- **네임스페이스 격리**: 개발자별 완전한 리소스 분리
-- **ServiceAccount**: 전용 계정으로 클러스터 인증
+### 완료된 기능
+- ✅ gRPC 서버 구현
+- ✅ Worker Pod 생성 및 관리
+- ✅ 멀티 개발자 환경 지원
+- ✅ 기본 Worker 생명주기 관리
 
-### 컨테이너 보안
-- **정적 바이너리**: CGO_ENABLED=0으로 보안 강화
-- **최소 이미지**: Alpine 기반 최소한의 의존성
-- **루트 권한 없음**: 비특권 컨테이너 실행
+### 진행 중
+- 🔄 Worker 로그 스트리밍
+- 🔄 상태 모니터링 개선
+- 🔄 Scale-down 기능
 
-## 🚦 현재 제약사항
+### 예정
+- ⏳ 로그 수집 및 전달
+- ⏳ 실패 시 재시도 메커니즘
+- ⏳ 메트릭스 및 모니터링
+- ⏳ 리소스 쿼터 관리
 
-- **Scale Down**: 아직 구현되지 않음 (Worker Pod 생성만 지원)
-- **리소스 제한**: Worker Pod에 CPU/메모리 제약 설정 필요
-- **장기 실행 Job**: 현재는 단기 작업만 가정
-- **모니터링**: 제한적인 메트릭스 및 관찰 가능성
+## 📚 추가 문서
 
-## 🎛️ 환경별 설정
+- [CLAUDE.md](./CLAUDE.md) - AI 어시스턴트를 위한 프로젝트 가이드
+- [DEVELOPMENT.md](./DEVELOPMENT.md) - 상세 개발 환경 설정
 
-### 개발 환경 (현재)
-- **Redis**: Docker 컨테이너로 로컬 실행
-- **Kubernetes**: Kind로 로컬 클러스터 구성
-- **이미지**: `imagePullPolicy: Never`로 로컬 빌드 사용
+## 📄 라이선스
 
-### 프로덕션 환경 (향후)
-- **Redis**: 외부 Redis 클러스터 연결
-- **Kubernetes**: EKS 클러스터 내부 배포
-- **이미지**: ECR 레지스트리에서 이미지 pull
-
-## 📚 추가 자료
-
-- [Kubernetes Go Client 문서](https://pkg.go.dev/k8s.io/client-go)
-- [Redis Go Client 문서](https://pkg.go.dev/github.com/redis/go-redis/v9)
-- [Kind 사용 가이드](https://kind.sigs.k8s.io/docs/)
-- [Go 표준 프로젝트 레이아웃](https://github.com/golang-standards/project-layout)
-- [프로젝트 CLAUDE.md](../CLAUDE.md) - AI 어시스턴트 가이드
-
-## 🤔 자주 묻는 질문
-
-**Q: 다른 개발자가 내 환경에 영향을 주나요?**  
-A: 아니요! Redis, Kind 클러스터, 네임스페이스 모두 완전히 격리됩니다.
-
-**Q: Main Pod와 Worker Pod의 차이점은 무엇인가요?**  
-A: Main Pod는 컨트롤러로 지속 실행되고, Worker Pod는 작업 수행 후 자동 삭제됩니다.
-
-**Q: 개발 시 매번 재배포해야 하나요?**  
-A: 네. 실제 Kubernetes 환경에서 개발하므로 코드 변경 시 `make build && make deploy` 필요합니다.
-
-**Q: 환경을 재설정하고 싶어요.**  
-A: `make clean && make setup-user USER=한진우`로 깨끗하게 재시작할 수 있습니다.
+MIT License
 
 ---
 
-**Ottoscaler는 Kubernetes 네이티브 환경에서 효율적인 동적 Pod 오케스트레이션을 제공합니다.**
+**Ottoscaler는 Otto CI/CD 플랫폼의 핵심 컴포넌트로서 효율적인 Worker Pod 오케스트레이션을 제공합니다.**

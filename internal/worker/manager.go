@@ -28,15 +28,16 @@
 //	err := manager.CreateAndWaitForWorker(ctx, config)
 //
 // Worker Manager는 다음과 같은 패턴으로 Pod를 관리합니다:
-//   1. 생성 (CreateWorkerPod)
-//   2. 모니터링 (WaitForPodCompletion)
-//   3. 정리 (CleanupPod)
+//  1. 생성 (CreateWorkerPod)
+//  2. 모니터링 (WaitForPodCompletion)
+//  3. 정리 (CleanupPod)
 package worker
 
 import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -62,10 +63,12 @@ const (
 //   - Worker Pod 생성 및 설정
 //   - 동시 실행되는 다중 Worker 관리
 //   - Pod 완료 상태 모니터링
+//   - 실시간 로그 수집 및 스트리밍
 //   - 자동 정리 및 리소스 해제
 type Manager struct {
-	k8sClient *k8s.Client
-	namespace string
+	k8sClient    *k8s.Client
+	namespace    string
+	logCollector *LogCollector
 }
 
 // WorkerConfig contains configuration for creating a Worker Pod.
@@ -110,6 +113,31 @@ type WorkerStatus struct {
 	Error     error         `json:"error"`      // 에러 (실패 시)
 }
 
+// LogCollector manages log streaming for worker pods
+//
+// LogCollector는 Worker Pod들의 로그 스트리밍을 관리합니다.
+type LogCollector struct {
+	k8sClient  *k8s.Client
+	activeLogs map[string]context.CancelFunc // Pod별 로그 스트리밍 취소 함수
+	logMutex   sync.RWMutex
+
+	// Log forwarding configuration
+	enableForwarding bool
+	logBufferSize    int
+}
+
+// NewLogCollector creates a new log collector
+//
+// NewLogCollector는 새로운 로그 수집기를 생성합니다.
+func NewLogCollector(k8sClient *k8s.Client) *LogCollector {
+	return &LogCollector{
+		k8sClient:        k8sClient,
+		activeLogs:       make(map[string]context.CancelFunc),
+		enableForwarding: true,
+		logBufferSize:    1000,
+	}
+}
+
 // NewManager는 새로운 Worker Manager를 생성합니다.
 //
 // Parameters:
@@ -125,9 +153,12 @@ func NewManager(k8sClient *k8s.Client, namespace string) *Manager {
 
 	log.Printf("👷 Worker Manager initialized for namespace: %s", namespace)
 
+	logCollector := NewLogCollector(k8sClient)
+
 	return &Manager{
-		k8sClient: k8sClient,
-		namespace: namespace,
+		k8sClient:    k8sClient,
+		namespace:    namespace,
+		logCollector: logCollector,
 	}
 }
 
@@ -303,8 +334,10 @@ func (m *Manager) CleanupPod(ctx context.Context, podName string) error {
 //
 // 전체 프로세스:
 //  1. Pod 생성
-//  2. 완료 대기 (모니터링)
-//  3. 자동 정리
+//  2. 로그 수집 시작
+//  3. 완료 대기 (모니터링)
+//  4. 로그 수집 중단
+//  5. 자동 정리
 //
 // 에러 발생 시에도 정리를 시도합니다.
 func (m *Manager) CreateAndWaitForWorker(ctx context.Context, config WorkerConfig) error {
@@ -316,10 +349,23 @@ func (m *Manager) CreateAndWaitForWorker(ctx context.Context, config WorkerConfi
 		return fmt.Errorf("worker creation failed: %w", err)
 	}
 
-	// 2. 완료 대기
+	// 2. 로그 수집 시작 (taskID 추출)
+	taskID := config.Labels["task-id"]
+	if taskID == "" {
+		taskID = "unknown"
+	}
+
+	if err := m.logCollector.StartLogCollection(ctx, config.Name, taskID); err != nil {
+		log.Printf("⚠️ Warning: failed to start log collection for %s: %v", config.Name, err)
+	}
+
+	// 3. 완료 대기
 	err = m.WaitForPodCompletion(ctx, config.Name)
 
-	// 3. 정리 (성공/실패 관계없이 수행)
+	// 4. 로그 수집 중단
+	m.logCollector.StopLogCollection(config.Name)
+
+	// 5. 정리 (성공/실패 관계없이 수행)
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -468,4 +514,142 @@ func (m *Manager) ListActivePods(ctx context.Context) ([]*v1.Pod, error) {
 func (m *Manager) TerminatePods(ctx context.Context, count int) error {
 	// TODO: scale_down 기능 구현 시 추가
 	return fmt.Errorf("pod termination not implemented yet")
+}
+
+// StartLogCollection starts log collection for a worker pod
+//
+// StartLogCollection은 Worker Pod의 로그 수집을 시작합니다.
+func (lc *LogCollector) StartLogCollection(ctx context.Context, podName string, taskID string) error {
+	lc.logMutex.Lock()
+	defer lc.logMutex.Unlock()
+
+	// Check if already collecting logs for this pod
+	if _, exists := lc.activeLogs[podName]; exists {
+		log.Printf("📜 Log collection already active for pod: %s", podName)
+		return nil
+	}
+
+	// Create cancellation context for this pod's log collection
+	logCtx, cancel := context.WithCancel(ctx)
+	lc.activeLogs[podName] = cancel
+
+	go func() {
+		defer func() {
+			lc.logMutex.Lock()
+			delete(lc.activeLogs, podName)
+			lc.logMutex.Unlock()
+		}()
+
+		// Wait a moment for pod to be ready for log collection
+		select {
+		case <-time.After(5 * time.Second):
+		case <-logCtx.Done():
+			return
+		}
+
+		// Start log streaming
+		options := k8s.LogStreamOptions{
+			Follow:     true,
+			Timestamps: true,
+			Container:  WorkerContainerName,
+		}
+
+		logChan, errChan := lc.k8sClient.StreamPodLogs(logCtx, podName, options)
+		log.Printf("📜 Started log collection for pod: %s", podName)
+
+		for {
+			select {
+			case logEntry, ok := <-logChan:
+				if !ok {
+					log.Printf("📜 Log collection completed for pod: %s", podName)
+					return
+				}
+
+				// Process log entry
+				lc.processLogEntry(logEntry, taskID)
+
+			case err, ok := <-errChan:
+				if !ok {
+					return
+				}
+				if err != nil {
+					log.Printf("⚠️ Log collection error for pod %s: %v", podName, err)
+				}
+
+			case <-logCtx.Done():
+				log.Printf("📜 Log collection cancelled for pod: %s", podName)
+				return
+			}
+		}
+	}()
+
+	return nil
+}
+
+// StopLogCollection stops log collection for a worker pod
+//
+// StopLogCollection은 Worker Pod의 로그 수집을 중단합니다.
+func (lc *LogCollector) StopLogCollection(podName string) {
+	lc.logMutex.Lock()
+	defer lc.logMutex.Unlock()
+
+	if cancel, exists := lc.activeLogs[podName]; exists {
+		cancel()
+		delete(lc.activeLogs, podName)
+		log.Printf("🔌 Pod %s의 로그 수집 중단", podName)
+	}
+}
+
+// processLogEntry processes a single log entry from a worker pod
+//
+// processLogEntry는 Worker Pod에서 수집된 로그 엔트리를 처리합니다.
+func (lc *LogCollector) processLogEntry(entry k8s.LogEntry, taskID string) {
+	if !lc.enableForwarding {
+		return
+	}
+
+	// Format log entry for display
+	logLevel := "INFO"
+	if entry.Source == "stderr" {
+		logLevel = "ERROR"
+	}
+
+	// TODO: Forward to LogStreamingService for gRPC streaming to otto-handler
+	// For now, just log locally with enhanced formatting
+	log.Printf("📜 [%s|%s] %s: %s",
+		entry.PodName,
+		taskID,
+		logLevel,
+		entry.Message)
+}
+
+// GetActiveLogCollections returns the list of pods currently being logged
+//
+// GetActiveLogCollections는 현재 로그가 수집되고 있는 Pod 목록을 반환합니다.
+func (lc *LogCollector) GetActiveLogCollections() []string {
+	lc.logMutex.RLock()
+	defer lc.logMutex.RUnlock()
+
+	pods := make([]string, 0, len(lc.activeLogs))
+	for podName := range lc.activeLogs {
+		pods = append(pods, podName)
+	}
+	return pods
+}
+
+// StopAllLogCollections stops all active log collections
+//
+// StopAllLogCollections는 모든 활성 로그 수집을 중단합니다.
+func (lc *LogCollector) StopAllLogCollections() {
+	lc.logMutex.Lock()
+	defer lc.logMutex.Unlock()
+
+	for podName, cancel := range lc.activeLogs {
+		cancel()
+		log.Printf("🔌 Pod %s의 로그 수집 중단", podName)
+	}
+
+	// Clear the map
+	lc.activeLogs = make(map[string]context.CancelFunc)
+	log.Printf("🔌 모든 로그 수집 중단됨")
 }
