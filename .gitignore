@@ -28,11 +28,11 @@ profile.cov
 go.work
 go.work.sum
 
-# env file
+# env files
 .env
-.env.example
-.env.docker
-.env.k8s
+.env.local
+.env.*.local
+.env.production.local
 
 # Editor/IDE
 # .idea/
@@ -64,5 +64,3 @@ Icon[
 Network Trash Folder
 Temporary Items
 .apdisk
-
-CLAUDE.md

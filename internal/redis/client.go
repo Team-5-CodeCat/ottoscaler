@@ -56,19 +56,25 @@ type Client struct {
 // ScaleEvent represents a scaling event received from Redis stream.
 //
 // ScaleEvent는 Redis 스트림에서 수신한 스케일링 이벤트를 나타냅니다.
-//
-// 이벤트 구조:
-//   - EventID: Redis 스트림 메시지 ID (예: "1756659802903-0")
-//   - Type: 스케일링 유형 ("scale_up" 또는 "scale_down")
-//   - PodCount: 대상 Pod 수
-//   - Timestamp: 이벤트 생성 시간
-//   - Metadata: 작업 ID 등 추가 정보
 type ScaleEvent struct {
-	EventID   string            `json:"event_id"`  // Redis 메시지 ID
-	Type      string            `json:"type"`      // "scale_up" or "scale_down"
-	PodCount  int               `json:"pod_count"` // 대상 Pod 수
-	Timestamp time.Time         `json:"timestamp"` // 이벤트 발생 시간
-	Metadata  map[string]string `json:"metadata"`  // 추가 메타데이터
+	// --- 기본 스케일링 정보 ---
+	EventID   string    `json:"event_id"`   // Redis 메시지 ID (자동 생성)
+	Type      string    `json:"type"`       // "scale_up" 또는 "scale_down"
+	Timestamp time.Time `json:"timestamp"`  // 이벤트 발생 시간
+
+	// --- 스케일링 대상 및 수량 정보 ---
+	TargetDeployment string `json:"target_deployment"` // 스케일링할 Kubernetes Deployment 이름
+	TargetReplicas   int    `json:"target_replicas"`   // 목표 Pod 복제본 수 (scale_up/down 시 최종 목표 수)
+
+	// --- CI/CD 작업 컨텍스트 정보 ---
+	JobID       string `json:"job_id"`         // 작업을 식별하는 고유 ID
+	Repository  string `json:"repository"`     // CI/CD 작업이 실행될 코드 리포지토리
+	CommitSHA   string `json:"commit_sha"`     // 작업을 트리거한 Git 커밋 해시
+	TriggeredBy string `json:"triggered_by"`   // 작업을 시작한 사용자 또는 시스템 (e.g., "github-webhook", "user:jinwoo")
+
+	// --- 운영 및 메타데이터 ---
+	Reason   string            `json:"reason"`   // 스케일링 요청 사유 (e.g., "New build job queued", "Idle pods cleanup")
+	Metadata map[string]string `json:"metadata"` // 기타 확장 정보를 위한 필드
 }
 
 // NewClient는 새로운 Redis 클라이언트를 생성합니다.
@@ -210,12 +216,18 @@ func (c *Client) parseScaleEvent(message redis.XMessage) (ScaleEvent, error) {
 	}
 
 	// 필수 필드 검증용
-	var hasType, hasPodCount bool
+	var hasType, hasTargetReplicas, hasTargetDeployment bool
 
 	// 메시지 필드 파싱
 	for key, value := range message.Values {
 		strValue, ok := value.(string)
 		if !ok {
+			// timestamp는 int64일 수 있으므로 별도 처리
+			if key == "timestamp" {
+				if ts, ok := value.(int64); ok {
+					event.Timestamp = time.Unix(ts, 0)
+				}
+			}
 			continue
 		}
 
@@ -223,14 +235,27 @@ func (c *Client) parseScaleEvent(message redis.XMessage) (ScaleEvent, error) {
 		case "type":
 			event.Type = strValue
 			hasType = true
-		case "pod_count":
+		case "target_deployment":
+			event.TargetDeployment = strValue
+			hasTargetDeployment = true
+		case "target_replicas":
 			if count, err := strconv.Atoi(strValue); err == nil {
-				event.PodCount = count
-				hasPodCount = true
+				event.TargetReplicas = count
+				hasTargetReplicas = true
 			} else {
-				return event, fmt.Errorf("invalid pod_count value: %s", strValue)
+				return event, fmt.Errorf("invalid target_replicas value: %s", strValue)
 			}
-		case "timestamp":
+		case "job_id":
+			event.JobID = strValue
+		case "repository":
+			event.Repository = strValue
+		case "commit_sha":
+			event.CommitSHA = strValue
+		case "triggered_by":
+			event.TriggeredBy = strValue
+		case "reason":
+			event.Reason = strValue
+		case "timestamp": // 문자열로 전달된 경우도 처리
 			if ts, err := strconv.ParseInt(strValue, 10, 64); err == nil {
 				event.Timestamp = time.Unix(ts, 0)
 			}
@@ -244,8 +269,11 @@ func (c *Client) parseScaleEvent(message redis.XMessage) (ScaleEvent, error) {
 	if !hasType {
 		return event, fmt.Errorf("missing required field: type")
 	}
-	if !hasPodCount {
-		return event, fmt.Errorf("missing required field: pod_count")
+	if !hasTargetDeployment {
+		return event, fmt.Errorf("missing required field: target_deployment")
+	}
+	if !hasTargetReplicas {
+		return event, fmt.Errorf("missing required field: target_replicas")
 	}
 
 	return event, nil
@@ -256,9 +284,15 @@ func (c *Client) parseScaleEvent(message redis.XMessage) (ScaleEvent, error) {
 // 주로 테스트나 외부 시스템에서 스케일링을 트리거할 때 사용됩니다.
 func (c *Client) PublishScaleEvent(ctx context.Context, streamName string, event ScaleEvent) error {
 	values := map[string]interface{}{
-		"type":      event.Type,
-		"pod_count": fmt.Sprintf("%d", event.PodCount),
-		"timestamp": event.Timestamp.Unix(),
+		"type":              event.Type,
+		"target_deployment": event.TargetDeployment,
+		"target_replicas":   fmt.Sprintf("%d", event.TargetReplicas),
+		"job_id":            event.JobID,
+		"repository":        event.Repository,
+		"commit_sha":        event.CommitSHA,
+		"triggered_by":      event.TriggeredBy,
+		"reason":            event.Reason,
+		"timestamp":         event.Timestamp.Unix(),
 	}
 
 	// 메타데이터 추가
