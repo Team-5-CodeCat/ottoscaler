@@ -10,6 +10,7 @@
 
 # Built binaries
 app
+ottoscaler
 test-*
 
 # Test binary, built with `go test -c`

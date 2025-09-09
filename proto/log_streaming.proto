@@ -535,13 +535,43 @@ message PipelineRequest {
     map<string, string> metadata = 7;
 }
 
+// StageType - Pipeline Stage의 타입을 정의하는 Enum
+enum StageType {
+    // Proto3 관례: 0은 미지정/알 수 없는 타입
+    STAGE_TYPE_UNSPECIFIED = 0;
+    
+    // 빌드 단계 (컴파일, 패키징 등)
+    STAGE_TYPE_BUILD = 1;
+    
+    // 테스트 단계 (단위 테스트, 통합 테스트 등)
+    STAGE_TYPE_TEST = 2;
+    
+    // 배포 단계 (스테이징, 프로덕션 배포 등)
+    STAGE_TYPE_DEPLOY = 3;
+    
+    // 환경 설정 단계 (초기화, 의존성 설치 등)
+    STAGE_TYPE_SETUP = 4;
+    
+    // 정리 단계 (리소스 정리, 캐시 삭제 등)
+    STAGE_TYPE_CLEANUP = 5;
+    
+    // 알림 단계 (이메일, 슬랙 알림 등)
+    STAGE_TYPE_NOTIFY = 6;
+    
+    // 승인 대기 단계 (수동 승인 필요)
+    STAGE_TYPE_APPROVAL = 7;
+    
+    // 사용자 정의 단계 (위 카테고리에 속하지 않는 경우)
+    STAGE_TYPE_CUSTOM = 100;
+}
+
 // PipelineStage - Pipeline을 구성하는 개별 Stage
 message PipelineStage {
     // Stage ID (예: "build", "unit-test", "deploy-staging")
     string stage_id = 1;
     
-    // Stage 타입 ("build", "test", "deploy", "custom")
-    string type = 2;
+    // Stage 타입 (Enum으로 타입 안정성 보장)
+    StageType type = 2;
     
     // Stage 이름
     string name = 3;

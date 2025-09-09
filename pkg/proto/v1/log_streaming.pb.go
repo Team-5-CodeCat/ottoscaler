@@ -21,6 +21,83 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// StageType - Pipeline Stage의 타입을 정의하는 Enum
+type StageType int32
+
+const (
+	// Proto3 관례: 0은 미지정/알 수 없는 타입
+	StageType_STAGE_TYPE_UNSPECIFIED StageType = 0
+	// 빌드 단계 (컴파일, 패키징 등)
+	StageType_STAGE_TYPE_BUILD StageType = 1
+	// 테스트 단계 (단위 테스트, 통합 테스트 등)
+	StageType_STAGE_TYPE_TEST StageType = 2
+	// 배포 단계 (스테이징, 프로덕션 배포 등)
+	StageType_STAGE_TYPE_DEPLOY StageType = 3
+	// 환경 설정 단계 (초기화, 의존성 설치 등)
+	StageType_STAGE_TYPE_SETUP StageType = 4
+	// 정리 단계 (리소스 정리, 캐시 삭제 등)
+	StageType_STAGE_TYPE_CLEANUP StageType = 5
+	// 알림 단계 (이메일, 슬랙 알림 등)
+	StageType_STAGE_TYPE_NOTIFY StageType = 6
+	// 승인 대기 단계 (수동 승인 필요)
+	StageType_STAGE_TYPE_APPROVAL StageType = 7
+	// 사용자 정의 단계 (위 카테고리에 속하지 않는 경우)
+	StageType_STAGE_TYPE_CUSTOM StageType = 100
+)
+
+// Enum value maps for StageType.
+var (
+	StageType_name = map[int32]string{
+		0:   "STAGE_TYPE_UNSPECIFIED",
+		1:   "STAGE_TYPE_BUILD",
+		2:   "STAGE_TYPE_TEST",
+		3:   "STAGE_TYPE_DEPLOY",
+		4:   "STAGE_TYPE_SETUP",
+		5:   "STAGE_TYPE_CLEANUP",
+		6:   "STAGE_TYPE_NOTIFY",
+		7:   "STAGE_TYPE_APPROVAL",
+		100: "STAGE_TYPE_CUSTOM",
+	}
+	StageType_value = map[string]int32{
+		"STAGE_TYPE_UNSPECIFIED": 0,
+		"STAGE_TYPE_BUILD":       1,
+		"STAGE_TYPE_TEST":        2,
+		"STAGE_TYPE_DEPLOY":      3,
+		"STAGE_TYPE_SETUP":       4,
+		"STAGE_TYPE_CLEANUP":     5,
+		"STAGE_TYPE_NOTIFY":      6,
+		"STAGE_TYPE_APPROVAL":    7,
+		"STAGE_TYPE_CUSTOM":      100,
+	}
+)
+
+func (x StageType) Enum() *StageType {
+	p := new(StageType)
+	*p = x
+	return p
+}
+
+func (x StageType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (StageType) Descriptor() protoreflect.EnumDescriptor {
+	return file_log_streaming_proto_enumTypes[0].Descriptor()
+}
+
+func (StageType) Type() protoreflect.EnumType {
+	return &file_log_streaming_proto_enumTypes[0]
+}
+
+func (x StageType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use StageType.Descriptor instead.
+func (StageType) EnumDescriptor() ([]byte, []int) {
+	return file_log_streaming_proto_rawDescGZIP(), []int{0}
+}
+
 // StageStatus - Pipeline Stage 상태
 type StageStatus int32
 
@@ -67,11 +144,11 @@ func (x StageStatus) String() string {
 }
 
 func (StageStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_log_streaming_proto_enumTypes[0].Descriptor()
+	return file_log_streaming_proto_enumTypes[1].Descriptor()
 }
 
 func (StageStatus) Type() protoreflect.EnumType {
-	return &file_log_streaming_proto_enumTypes[0]
+	return &file_log_streaming_proto_enumTypes[1]
 }
 
 func (x StageStatus) Number() protoreflect.EnumNumber {
@@ -80,7 +157,7 @@ func (x StageStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use StageStatus.Descriptor instead.
 func (StageStatus) EnumDescriptor() ([]byte, []int) {
-	return file_log_streaming_proto_rawDescGZIP(), []int{0}
+	return file_log_streaming_proto_rawDescGZIP(), []int{1}
 }
 
 // Status - 로그 처리 결과 상태
@@ -121,11 +198,11 @@ func (x LogResponse_Status) String() string {
 }
 
 func (LogResponse_Status) Descriptor() protoreflect.EnumDescriptor {
-	return file_log_streaming_proto_enumTypes[1].Descriptor()
+	return file_log_streaming_proto_enumTypes[2].Descriptor()
 }
 
 func (LogResponse_Status) Type() protoreflect.EnumType {
-	return &file_log_streaming_proto_enumTypes[1]
+	return &file_log_streaming_proto_enumTypes[2]
 }
 
 func (x LogResponse_Status) Number() protoreflect.EnumNumber {
@@ -173,11 +250,11 @@ func (x RegistrationResponse_Status) String() string {
 }
 
 func (RegistrationResponse_Status) Descriptor() protoreflect.EnumDescriptor {
-	return file_log_streaming_proto_enumTypes[2].Descriptor()
+	return file_log_streaming_proto_enumTypes[3].Descriptor()
 }
 
 func (RegistrationResponse_Status) Type() protoreflect.EnumType {
-	return &file_log_streaming_proto_enumTypes[2]
+	return &file_log_streaming_proto_enumTypes[3]
 }
 
 func (x RegistrationResponse_Status) Number() protoreflect.EnumNumber {
@@ -225,11 +302,11 @@ func (x ScaleResponse_Status) String() string {
 }
 
 func (ScaleResponse_Status) Descriptor() protoreflect.EnumDescriptor {
-	return file_log_streaming_proto_enumTypes[3].Descriptor()
+	return file_log_streaming_proto_enumTypes[4].Descriptor()
 }
 
 func (ScaleResponse_Status) Type() protoreflect.EnumType {
-	return &file_log_streaming_proto_enumTypes[3]
+	return &file_log_streaming_proto_enumTypes[4]
 }
 
 func (x ScaleResponse_Status) Number() protoreflect.EnumNumber {
@@ -274,11 +351,11 @@ func (x LogForwardResponse_Status) String() string {
 }
 
 func (LogForwardResponse_Status) Descriptor() protoreflect.EnumDescriptor {
-	return file_log_streaming_proto_enumTypes[4].Descriptor()
+	return file_log_streaming_proto_enumTypes[5].Descriptor()
 }
 
 func (LogForwardResponse_Status) Type() protoreflect.EnumType {
-	return &file_log_streaming_proto_enumTypes[4]
+	return &file_log_streaming_proto_enumTypes[5]
 }
 
 func (x LogForwardResponse_Status) Number() protoreflect.EnumNumber {
@@ -329,11 +406,11 @@ func (x WorkerStatusNotification_StatusType) String() string {
 }
 
 func (WorkerStatusNotification_StatusType) Descriptor() protoreflect.EnumDescriptor {
-	return file_log_streaming_proto_enumTypes[5].Descriptor()
+	return file_log_streaming_proto_enumTypes[6].Descriptor()
 }
 
 func (WorkerStatusNotification_StatusType) Type() protoreflect.EnumType {
-	return &file_log_streaming_proto_enumTypes[5]
+	return &file_log_streaming_proto_enumTypes[6]
 }
 
 func (x WorkerStatusNotification_StatusType) Number() protoreflect.EnumNumber {
@@ -378,11 +455,11 @@ func (x WorkerStatusAck_Status) String() string {
 }
 
 func (WorkerStatusAck_Status) Descriptor() protoreflect.EnumDescriptor {
-	return file_log_streaming_proto_enumTypes[6].Descriptor()
+	return file_log_streaming_proto_enumTypes[7].Descriptor()
 }
 
 func (WorkerStatusAck_Status) Type() protoreflect.EnumType {
-	return &file_log_streaming_proto_enumTypes[6]
+	return &file_log_streaming_proto_enumTypes[7]
 }
 
 func (x WorkerStatusAck_Status) Number() protoreflect.EnumNumber {
@@ -1802,8 +1879,8 @@ type PipelineStage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Stage ID (예: "build", "unit-test", "deploy-staging")
 	StageId string `protobuf:"bytes,1,opt,name=stage_id,json=stageId,proto3" json:"stage_id,omitempty"`
-	// Stage 타입 ("build", "test", "deploy", "custom")
-	Type string `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	// Stage 타입 (Enum으로 타입 안정성 보장)
+	Type StageType `protobuf:"varint,2,opt,name=type,proto3,enum=ottoscaler.v1.StageType" json:"type,omitempty"`
 	// Stage 이름
 	Name string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	// 이 Stage를 위한 Worker 수
@@ -1863,11 +1940,11 @@ func (x *PipelineStage) GetStageId() string {
 	return ""
 }
 
-func (x *PipelineStage) GetType() string {
+func (x *PipelineStage) GetType() StageType {
 	if x != nil {
 		return x.Type
 	}
-	return ""
+	return StageType_STAGE_TYPE_UNSPECIFIED
 }
 
 func (x *PipelineStage) GetName() string {
@@ -2404,10 +2481,10 @@ const file_log_streaming_proto_rawDesc = "" +
 	"\bmetadata\x18\a \x03(\v2,.ottoscaler.v1.PipelineRequest.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xbd\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd7\x03\n" +
 	"\rPipelineStage\x12\x19\n" +
-	"\bstage_id\x18\x01 \x01(\tR\astageId\x12\x12\n" +
-	"\x04type\x18\x02 \x01(\tR\x04type\x12\x12\n" +
+	"\bstage_id\x18\x01 \x01(\tR\astageId\x12,\n" +
+	"\x04type\x18\x02 \x01(\x0e2\x18.ottoscaler.v1.StageTypeR\x04type\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12!\n" +
 	"\fworker_count\x18\x04 \x01(\x05R\vworkerCount\x12\x1d\n" +
 	"\n" +
@@ -2447,7 +2524,17 @@ const file_log_streaming_proto_rawDesc = "" +
 	"\x0efailed_workers\x18\x03 \x01(\x05R\rfailedWorkers\x12#\n" +
 	"\rtotal_workers\x18\x04 \x01(\x05R\ftotalWorkers\x12\"\n" +
 	"\ravg_cpu_usage\x18\x05 \x01(\x02R\vavgCpuUsage\x12\"\n" +
-	"\ravg_memory_mb\x18\x06 \x01(\x02R\vavgMemoryMb*\x96\x01\n" +
+	"\ravg_memory_mb\x18\x06 \x01(\x02R\vavgMemoryMb*\xde\x01\n" +
+	"\tStageType\x12\x1a\n" +
+	"\x16STAGE_TYPE_UNSPECIFIED\x10\x00\x12\x14\n" +
+	"\x10STAGE_TYPE_BUILD\x10\x01\x12\x13\n" +
+	"\x0fSTAGE_TYPE_TEST\x10\x02\x12\x15\n" +
+	"\x11STAGE_TYPE_DEPLOY\x10\x03\x12\x14\n" +
+	"\x10STAGE_TYPE_SETUP\x10\x04\x12\x16\n" +
+	"\x12STAGE_TYPE_CLEANUP\x10\x05\x12\x15\n" +
+	"\x11STAGE_TYPE_NOTIFY\x10\x06\x12\x17\n" +
+	"\x13STAGE_TYPE_APPROVAL\x10\a\x12\x15\n" +
+	"\x11STAGE_TYPE_CUSTOM\x10d*\x96\x01\n" +
 	"\vStageStatus\x12\x11\n" +
 	"\rSTAGE_PENDING\x10\x00\x12\x11\n" +
 	"\rSTAGE_RUNNING\x10\x01\x12\x13\n" +
@@ -2481,91 +2568,93 @@ func file_log_streaming_proto_rawDescGZIP() []byte {
 	return file_log_streaming_proto_rawDescData
 }
 
-var file_log_streaming_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
+var file_log_streaming_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
 var file_log_streaming_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_log_streaming_proto_goTypes = []any{
-	(StageStatus)(0),                         // 0: ottoscaler.v1.StageStatus
-	(LogResponse_Status)(0),                  // 1: ottoscaler.v1.LogResponse.Status
-	(RegistrationResponse_Status)(0),         // 2: ottoscaler.v1.RegistrationResponse.Status
-	(ScaleResponse_Status)(0),                // 3: ottoscaler.v1.ScaleResponse.Status
-	(LogForwardResponse_Status)(0),           // 4: ottoscaler.v1.LogForwardResponse.Status
-	(WorkerStatusNotification_StatusType)(0), // 5: ottoscaler.v1.WorkerStatusNotification.StatusType
-	(WorkerStatusAck_Status)(0),              // 6: ottoscaler.v1.WorkerStatusAck.Status
-	(*LogEntry)(nil),                         // 7: ottoscaler.v1.LogEntry
-	(*LogResponse)(nil),                      // 8: ottoscaler.v1.LogResponse
-	(*WorkerRegistration)(nil),               // 9: ottoscaler.v1.WorkerRegistration
-	(*WorkerMetadata)(nil),                   // 10: ottoscaler.v1.WorkerMetadata
-	(*RegistrationResponse)(nil),             // 11: ottoscaler.v1.RegistrationResponse
-	(*LoggingConfig)(nil),                    // 12: ottoscaler.v1.LoggingConfig
-	(*ScaleRequest)(nil),                     // 13: ottoscaler.v1.ScaleRequest
-	(*ScaleResponse)(nil),                    // 14: ottoscaler.v1.ScaleResponse
-	(*WorkerStatusRequest)(nil),              // 15: ottoscaler.v1.WorkerStatusRequest
-	(*WorkerStatusResponse)(nil),             // 16: ottoscaler.v1.WorkerStatusResponse
-	(*WorkerPodStatus)(nil),                  // 17: ottoscaler.v1.WorkerPodStatus
-	(*WorkerLogEntry)(nil),                   // 18: ottoscaler.v1.WorkerLogEntry
-	(*LogForwardResponse)(nil),               // 19: ottoscaler.v1.LogForwardResponse
-	(*WorkerStatusNotification)(nil),         // 20: ottoscaler.v1.WorkerStatusNotification
-	(*WorkerStatusAck)(nil),                  // 21: ottoscaler.v1.WorkerStatusAck
-	(*PipelineRequest)(nil),                  // 22: ottoscaler.v1.PipelineRequest
-	(*PipelineStage)(nil),                    // 23: ottoscaler.v1.PipelineStage
-	(*RetryPolicy)(nil),                      // 24: ottoscaler.v1.RetryPolicy
-	(*PipelineProgress)(nil),                 // 25: ottoscaler.v1.PipelineProgress
-	(*StageMetrics)(nil),                     // 26: ottoscaler.v1.StageMetrics
-	nil,                                      // 27: ottoscaler.v1.LogEntry.MetadataEntry
-	nil,                                      // 28: ottoscaler.v1.WorkerMetadata.LabelsEntry
-	nil,                                      // 29: ottoscaler.v1.ScaleRequest.BuildConfigEntry
-	nil,                                      // 30: ottoscaler.v1.ScaleRequest.MetadataEntry
-	nil,                                      // 31: ottoscaler.v1.WorkerPodStatus.LabelsEntry
-	nil,                                      // 32: ottoscaler.v1.WorkerLogEntry.MetadataEntry
-	nil,                                      // 33: ottoscaler.v1.WorkerStatusNotification.MetadataEntry
-	nil,                                      // 34: ottoscaler.v1.PipelineRequest.MetadataEntry
-	nil,                                      // 35: ottoscaler.v1.PipelineStage.ConfigEntry
+	(StageType)(0),                           // 0: ottoscaler.v1.StageType
+	(StageStatus)(0),                         // 1: ottoscaler.v1.StageStatus
+	(LogResponse_Status)(0),                  // 2: ottoscaler.v1.LogResponse.Status
+	(RegistrationResponse_Status)(0),         // 3: ottoscaler.v1.RegistrationResponse.Status
+	(ScaleResponse_Status)(0),                // 4: ottoscaler.v1.ScaleResponse.Status
+	(LogForwardResponse_Status)(0),           // 5: ottoscaler.v1.LogForwardResponse.Status
+	(WorkerStatusNotification_StatusType)(0), // 6: ottoscaler.v1.WorkerStatusNotification.StatusType
+	(WorkerStatusAck_Status)(0),              // 7: ottoscaler.v1.WorkerStatusAck.Status
+	(*LogEntry)(nil),                         // 8: ottoscaler.v1.LogEntry
+	(*LogResponse)(nil),                      // 9: ottoscaler.v1.LogResponse
+	(*WorkerRegistration)(nil),               // 10: ottoscaler.v1.WorkerRegistration
+	(*WorkerMetadata)(nil),                   // 11: ottoscaler.v1.WorkerMetadata
+	(*RegistrationResponse)(nil),             // 12: ottoscaler.v1.RegistrationResponse
+	(*LoggingConfig)(nil),                    // 13: ottoscaler.v1.LoggingConfig
+	(*ScaleRequest)(nil),                     // 14: ottoscaler.v1.ScaleRequest
+	(*ScaleResponse)(nil),                    // 15: ottoscaler.v1.ScaleResponse
+	(*WorkerStatusRequest)(nil),              // 16: ottoscaler.v1.WorkerStatusRequest
+	(*WorkerStatusResponse)(nil),             // 17: ottoscaler.v1.WorkerStatusResponse
+	(*WorkerPodStatus)(nil),                  // 18: ottoscaler.v1.WorkerPodStatus
+	(*WorkerLogEntry)(nil),                   // 19: ottoscaler.v1.WorkerLogEntry
+	(*LogForwardResponse)(nil),               // 20: ottoscaler.v1.LogForwardResponse
+	(*WorkerStatusNotification)(nil),         // 21: ottoscaler.v1.WorkerStatusNotification
+	(*WorkerStatusAck)(nil),                  // 22: ottoscaler.v1.WorkerStatusAck
+	(*PipelineRequest)(nil),                  // 23: ottoscaler.v1.PipelineRequest
+	(*PipelineStage)(nil),                    // 24: ottoscaler.v1.PipelineStage
+	(*RetryPolicy)(nil),                      // 25: ottoscaler.v1.RetryPolicy
+	(*PipelineProgress)(nil),                 // 26: ottoscaler.v1.PipelineProgress
+	(*StageMetrics)(nil),                     // 27: ottoscaler.v1.StageMetrics
+	nil,                                      // 28: ottoscaler.v1.LogEntry.MetadataEntry
+	nil,                                      // 29: ottoscaler.v1.WorkerMetadata.LabelsEntry
+	nil,                                      // 30: ottoscaler.v1.ScaleRequest.BuildConfigEntry
+	nil,                                      // 31: ottoscaler.v1.ScaleRequest.MetadataEntry
+	nil,                                      // 32: ottoscaler.v1.WorkerPodStatus.LabelsEntry
+	nil,                                      // 33: ottoscaler.v1.WorkerLogEntry.MetadataEntry
+	nil,                                      // 34: ottoscaler.v1.WorkerStatusNotification.MetadataEntry
+	nil,                                      // 35: ottoscaler.v1.PipelineRequest.MetadataEntry
+	nil,                                      // 36: ottoscaler.v1.PipelineStage.ConfigEntry
 }
 var file_log_streaming_proto_depIdxs = []int32{
-	27, // 0: ottoscaler.v1.LogEntry.metadata:type_name -> ottoscaler.v1.LogEntry.MetadataEntry
-	1,  // 1: ottoscaler.v1.LogResponse.status:type_name -> ottoscaler.v1.LogResponse.Status
-	10, // 2: ottoscaler.v1.WorkerRegistration.metadata:type_name -> ottoscaler.v1.WorkerMetadata
-	28, // 3: ottoscaler.v1.WorkerMetadata.labels:type_name -> ottoscaler.v1.WorkerMetadata.LabelsEntry
-	2,  // 4: ottoscaler.v1.RegistrationResponse.status:type_name -> ottoscaler.v1.RegistrationResponse.Status
-	12, // 5: ottoscaler.v1.RegistrationResponse.config:type_name -> ottoscaler.v1.LoggingConfig
-	29, // 6: ottoscaler.v1.ScaleRequest.build_config:type_name -> ottoscaler.v1.ScaleRequest.BuildConfigEntry
-	30, // 7: ottoscaler.v1.ScaleRequest.metadata:type_name -> ottoscaler.v1.ScaleRequest.MetadataEntry
-	3,  // 8: ottoscaler.v1.ScaleResponse.status:type_name -> ottoscaler.v1.ScaleResponse.Status
-	17, // 9: ottoscaler.v1.WorkerStatusResponse.workers:type_name -> ottoscaler.v1.WorkerPodStatus
-	31, // 10: ottoscaler.v1.WorkerPodStatus.labels:type_name -> ottoscaler.v1.WorkerPodStatus.LabelsEntry
-	10, // 11: ottoscaler.v1.WorkerLogEntry.pod_metadata:type_name -> ottoscaler.v1.WorkerMetadata
-	32, // 12: ottoscaler.v1.WorkerLogEntry.metadata:type_name -> ottoscaler.v1.WorkerLogEntry.MetadataEntry
-	4,  // 13: ottoscaler.v1.LogForwardResponse.status:type_name -> ottoscaler.v1.LogForwardResponse.Status
-	5,  // 14: ottoscaler.v1.WorkerStatusNotification.status:type_name -> ottoscaler.v1.WorkerStatusNotification.StatusType
-	33, // 15: ottoscaler.v1.WorkerStatusNotification.metadata:type_name -> ottoscaler.v1.WorkerStatusNotification.MetadataEntry
-	6,  // 16: ottoscaler.v1.WorkerStatusAck.status:type_name -> ottoscaler.v1.WorkerStatusAck.Status
-	23, // 17: ottoscaler.v1.PipelineRequest.stages:type_name -> ottoscaler.v1.PipelineStage
-	34, // 18: ottoscaler.v1.PipelineRequest.metadata:type_name -> ottoscaler.v1.PipelineRequest.MetadataEntry
-	35, // 19: ottoscaler.v1.PipelineStage.config:type_name -> ottoscaler.v1.PipelineStage.ConfigEntry
-	24, // 20: ottoscaler.v1.PipelineStage.retry_policy:type_name -> ottoscaler.v1.RetryPolicy
-	0,  // 21: ottoscaler.v1.PipelineProgress.status:type_name -> ottoscaler.v1.StageStatus
-	26, // 22: ottoscaler.v1.PipelineProgress.metrics:type_name -> ottoscaler.v1.StageMetrics
-	13, // 23: ottoscaler.v1.OttoscalerService.ScaleUp:input_type -> ottoscaler.v1.ScaleRequest
-	13, // 24: ottoscaler.v1.OttoscalerService.ScaleDown:input_type -> ottoscaler.v1.ScaleRequest
-	15, // 25: ottoscaler.v1.OttoscalerService.GetWorkerStatus:input_type -> ottoscaler.v1.WorkerStatusRequest
-	22, // 26: ottoscaler.v1.OttoscalerService.ExecutePipeline:input_type -> ottoscaler.v1.PipelineRequest
-	18, // 27: ottoscaler.v1.OttoHandlerLogService.ForwardWorkerLogs:input_type -> ottoscaler.v1.WorkerLogEntry
-	20, // 28: ottoscaler.v1.OttoHandlerLogService.NotifyWorkerStatus:input_type -> ottoscaler.v1.WorkerStatusNotification
-	7,  // 29: ottoscaler.v1.LogStreamingService.StreamLogs:input_type -> ottoscaler.v1.LogEntry
-	9,  // 30: ottoscaler.v1.LogStreamingService.RegisterWorker:input_type -> ottoscaler.v1.WorkerRegistration
-	14, // 31: ottoscaler.v1.OttoscalerService.ScaleUp:output_type -> ottoscaler.v1.ScaleResponse
-	14, // 32: ottoscaler.v1.OttoscalerService.ScaleDown:output_type -> ottoscaler.v1.ScaleResponse
-	16, // 33: ottoscaler.v1.OttoscalerService.GetWorkerStatus:output_type -> ottoscaler.v1.WorkerStatusResponse
-	25, // 34: ottoscaler.v1.OttoscalerService.ExecutePipeline:output_type -> ottoscaler.v1.PipelineProgress
-	19, // 35: ottoscaler.v1.OttoHandlerLogService.ForwardWorkerLogs:output_type -> ottoscaler.v1.LogForwardResponse
-	21, // 36: ottoscaler.v1.OttoHandlerLogService.NotifyWorkerStatus:output_type -> ottoscaler.v1.WorkerStatusAck
-	8,  // 37: ottoscaler.v1.LogStreamingService.StreamLogs:output_type -> ottoscaler.v1.LogResponse
-	11, // 38: ottoscaler.v1.LogStreamingService.RegisterWorker:output_type -> ottoscaler.v1.RegistrationResponse
-	31, // [31:39] is the sub-list for method output_type
-	23, // [23:31] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	28, // 0: ottoscaler.v1.LogEntry.metadata:type_name -> ottoscaler.v1.LogEntry.MetadataEntry
+	2,  // 1: ottoscaler.v1.LogResponse.status:type_name -> ottoscaler.v1.LogResponse.Status
+	11, // 2: ottoscaler.v1.WorkerRegistration.metadata:type_name -> ottoscaler.v1.WorkerMetadata
+	29, // 3: ottoscaler.v1.WorkerMetadata.labels:type_name -> ottoscaler.v1.WorkerMetadata.LabelsEntry
+	3,  // 4: ottoscaler.v1.RegistrationResponse.status:type_name -> ottoscaler.v1.RegistrationResponse.Status
+	13, // 5: ottoscaler.v1.RegistrationResponse.config:type_name -> ottoscaler.v1.LoggingConfig
+	30, // 6: ottoscaler.v1.ScaleRequest.build_config:type_name -> ottoscaler.v1.ScaleRequest.BuildConfigEntry
+	31, // 7: ottoscaler.v1.ScaleRequest.metadata:type_name -> ottoscaler.v1.ScaleRequest.MetadataEntry
+	4,  // 8: ottoscaler.v1.ScaleResponse.status:type_name -> ottoscaler.v1.ScaleResponse.Status
+	18, // 9: ottoscaler.v1.WorkerStatusResponse.workers:type_name -> ottoscaler.v1.WorkerPodStatus
+	32, // 10: ottoscaler.v1.WorkerPodStatus.labels:type_name -> ottoscaler.v1.WorkerPodStatus.LabelsEntry
+	11, // 11: ottoscaler.v1.WorkerLogEntry.pod_metadata:type_name -> ottoscaler.v1.WorkerMetadata
+	33, // 12: ottoscaler.v1.WorkerLogEntry.metadata:type_name -> ottoscaler.v1.WorkerLogEntry.MetadataEntry
+	5,  // 13: ottoscaler.v1.LogForwardResponse.status:type_name -> ottoscaler.v1.LogForwardResponse.Status
+	6,  // 14: ottoscaler.v1.WorkerStatusNotification.status:type_name -> ottoscaler.v1.WorkerStatusNotification.StatusType
+	34, // 15: ottoscaler.v1.WorkerStatusNotification.metadata:type_name -> ottoscaler.v1.WorkerStatusNotification.MetadataEntry
+	7,  // 16: ottoscaler.v1.WorkerStatusAck.status:type_name -> ottoscaler.v1.WorkerStatusAck.Status
+	24, // 17: ottoscaler.v1.PipelineRequest.stages:type_name -> ottoscaler.v1.PipelineStage
+	35, // 18: ottoscaler.v1.PipelineRequest.metadata:type_name -> ottoscaler.v1.PipelineRequest.MetadataEntry
+	0,  // 19: ottoscaler.v1.PipelineStage.type:type_name -> ottoscaler.v1.StageType
+	36, // 20: ottoscaler.v1.PipelineStage.config:type_name -> ottoscaler.v1.PipelineStage.ConfigEntry
+	25, // 21: ottoscaler.v1.PipelineStage.retry_policy:type_name -> ottoscaler.v1.RetryPolicy
+	1,  // 22: ottoscaler.v1.PipelineProgress.status:type_name -> ottoscaler.v1.StageStatus
+	27, // 23: ottoscaler.v1.PipelineProgress.metrics:type_name -> ottoscaler.v1.StageMetrics
+	14, // 24: ottoscaler.v1.OttoscalerService.ScaleUp:input_type -> ottoscaler.v1.ScaleRequest
+	14, // 25: ottoscaler.v1.OttoscalerService.ScaleDown:input_type -> ottoscaler.v1.ScaleRequest
+	16, // 26: ottoscaler.v1.OttoscalerService.GetWorkerStatus:input_type -> ottoscaler.v1.WorkerStatusRequest
+	23, // 27: ottoscaler.v1.OttoscalerService.ExecutePipeline:input_type -> ottoscaler.v1.PipelineRequest
+	19, // 28: ottoscaler.v1.OttoHandlerLogService.ForwardWorkerLogs:input_type -> ottoscaler.v1.WorkerLogEntry
+	21, // 29: ottoscaler.v1.OttoHandlerLogService.NotifyWorkerStatus:input_type -> ottoscaler.v1.WorkerStatusNotification
+	8,  // 30: ottoscaler.v1.LogStreamingService.StreamLogs:input_type -> ottoscaler.v1.LogEntry
+	10, // 31: ottoscaler.v1.LogStreamingService.RegisterWorker:input_type -> ottoscaler.v1.WorkerRegistration
+	15, // 32: ottoscaler.v1.OttoscalerService.ScaleUp:output_type -> ottoscaler.v1.ScaleResponse
+	15, // 33: ottoscaler.v1.OttoscalerService.ScaleDown:output_type -> ottoscaler.v1.ScaleResponse
+	17, // 34: ottoscaler.v1.OttoscalerService.GetWorkerStatus:output_type -> ottoscaler.v1.WorkerStatusResponse
+	26, // 35: ottoscaler.v1.OttoscalerService.ExecutePipeline:output_type -> ottoscaler.v1.PipelineProgress
+	20, // 36: ottoscaler.v1.OttoHandlerLogService.ForwardWorkerLogs:output_type -> ottoscaler.v1.LogForwardResponse
+	22, // 37: ottoscaler.v1.OttoHandlerLogService.NotifyWorkerStatus:output_type -> ottoscaler.v1.WorkerStatusAck
+	9,  // 38: ottoscaler.v1.LogStreamingService.StreamLogs:output_type -> ottoscaler.v1.LogResponse
+	12, // 39: ottoscaler.v1.LogStreamingService.RegisterWorker:output_type -> ottoscaler.v1.RegistrationResponse
+	32, // [32:40] is the sub-list for method output_type
+	24, // [24:32] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_log_streaming_proto_init() }
@@ -2578,7 +2667,7 @@ func file_log_streaming_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_log_streaming_proto_rawDesc), len(file_log_streaming_proto_rawDesc)),
-			NumEnums:      7,
+			NumEnums:      8,
 			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   3,

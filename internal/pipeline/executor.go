@@ -316,7 +316,7 @@ func (e *Executor) createWorkerConfigs(stage *pb.PipelineStage) []worker.WorkerC
 			Labels: map[string]string{
 				"pipeline-id": e.pipeline.PipelineId,
 				"stage-id":    stage.StageId,
-				"stage-type":  stage.Type,
+				"stage-type":  stage.Type.String(),
 				"managed-by":  "ottoscaler",
 			},
 		}
